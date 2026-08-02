@@ -1,0 +1,6 @@
+{
+  "name": "@careflow/web", "private": true, "version": "1.0.0",
+  "scripts": {"dev": "next dev", "build": "next build", "start": "next start", "typecheck": "tsc --noEmit"},
+  "dependencies": {"next": "^16.0.1", "react": "^19.2.0", "react-dom": "^19.2.0", "@tanstack/react-query": "^5.90.5", "zustand": "^5.0.8", "lucide-react": "^0.548.0", "socket.io-client": "^4.8.1"},
+  "devDependencies": {"@types/node": "^24.10.0", "@types/react": "^19.2.2", "@types/react-dom": "^19.2.2"}
+}
