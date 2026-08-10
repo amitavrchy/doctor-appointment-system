@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum AppointmentStatus {
+  HELD
+  PENDING_PAYMENT
+  CONFIRMED
+  CHECKED_IN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+  RESCHEDULED
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  phone String? @unique
+  passwordHash String
+  fullName String
+  globalRole String @default("PATIENT")
+  dateOfBirth DateTime?
+  bloodGroup String?
+  allergies String[]
+  emergencyContact Json?
+  consentHistory Boolean @default(false)
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  doctor DoctorProfile?
+  roles UserClinicRole[]
+  appointments Appointment[] @relation("patient")
+  sessions RefreshSession[]
+}
+model DoctorProfile {
+  userId String @id
+  user User @relation(fields:[userId], references:[id])
+  specialties String[]
+  licenseNumber String @unique
+  bio String
+  languages String[]
+  color String @default("teal")
+  memberships DoctorClinic[]
+  rules DoctorScheduleRule[]
+  exceptions ScheduleException[]
+  appointments Appointment[] @relation("doctor")
+}
+model Clinic {
+  id String @id @default(cuid())
+  name String
+  slug String @unique
+  timezone String @default("Asia/Dhaka")
+  address String
+  lat Float?
+  lng Float?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  rooms Room[]
+  members UserClinicRole[]
+  doctors DoctorClinic[]
+  rules DoctorScheduleRule[]
+  exceptions ScheduleException[]
+  appointments Appointment[]
+}
+model Room {
+  id String @id @default(cuid())
+  clinicId String
+  name String
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  @@unique([clinicId,name])
+}
+model UserClinicRole {
+  id String @id @default(cuid())
+  userId String
+  clinicId String
+  role String
+  user User @relation(fields:[userId],references:[id])
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  @@unique([userId,clinicId,role])
+}
+model DoctorClinic {
+  id String @id @default(cuid())
+  doctorId String
+  clinicId String
+  feeMinor Int
+  teleFeeMinor Int
+  doctor DoctorProfile @relation(fields:[doctorId],references:[userId])
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  @@unique([doctorId,clinicId])
+}
+model DoctorScheduleRule {
+  id String @id @default(cuid())
+  doctorId String
+  clinicId String
+  rrule String
+  startTimeLocal String
+  endTimeLocal String
+  slotDurationMinutes Int @default(30)
+  bufferMinutes Int @default(0)
+  maxParallel Int @default(1)
+  effectiveFrom DateTime
+  effectiveTo DateTime?
+  roomId String?
+  consultationType String @default("IN_PERSON")
+  feeMinor Int
+  doctor DoctorProfile @relation(fields:[doctorId],references:[userId])
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  @@index([doctorId,clinicId])
+}
+model ScheduleException {
+  id String @id @default(cuid())
+  doctorId String
+  clinicId String
+  dateLocal DateTime @db.Date
+  type String
+  startTimeLocal String?
+  endTimeLocal String?
+  reason String?
+  doctor DoctorProfile @relation(fields:[doctorId],references:[userId])
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  @@index([doctorId,clinicId,dateLocal])
+}
+model SlotHold {
+  id String @id @default(cuid())
+  doctorId String
+  clinicId String
+  patientId String
+  startAt DateTime
+  endAt DateTime
+  type String
+  feeMinor Int
+  roomId String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@unique([doctorId,startAt])
+  @@index([expiresAt])
+}
+model Appointment {
+  id String @id @default(cuid())
+  clinicId String
+  doctorId String
+  patientId String
+  roomId String?
+  type String
+  status AppointmentStatus @default(CONFIRMED)
+  startAt DateTime
+  endAt DateTime
+  feeMinor Int
+  currency String @default("BDT")
+  reason String?
+  cancelReason String?
+  checkedInAt DateTime?
+  rescheduledFromId String? @unique
+  idempotencyKey String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  doctor DoctorProfile @relation("doctor",fields:[doctorId],references:[userId])
+  patient User @relation("patient",fields:[patientId],references:[id])
+  notes ClinicalNote[]
+  prescription Prescription?
+  payment Payment?
+  teleSession TelemedicineSession?
+  @@index([doctorId,startAt])
+  @@index([clinicId,status])
+  @@index([patientId,startAt])
+}
+model ClinicalNote {
+  id String @id @default(cuid())
+  appointmentId String
+  authorId String
+  soap Json
+  searchVector Unsupported("tsvector")?
+  createdAt DateTime @default(now())
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+  revisions NoteRevision[]
+}
+model NoteRevision {
+  id String @id @default(cuid())
+  noteId String
+  soap Json
+  editedBy String
+  editedAt DateTime @default(now())
+  note ClinicalNote @relation(fields:[noteId],references:[id])
+}
+model Prescription {
+  id String @id @default(cuid())
+  appointmentId String @unique
+  doctorId String
+  status String @default("DRAFT")
+  items Json
+  signedAt DateTime?
+  expiresAt DateTime?
+  verificationCode String @unique @default(cuid())
+  signature String?
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+}
+model Payment {
+  id String @id @default(cuid())
+  appointmentId String @unique
+  provider String
+  status String @default("CREATED")
+  amountMinor Int
+  currency String @default("BDT")
+  providerRef String? @unique
+  idempotencyKey String @unique
+  refundMinor Int @default(0)
+  createdAt DateTime @default(now())
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+}
+model WebhookEvent {
+  id String @id
+  processedAt DateTime @default(now())
+}
+model TelemedicineSession {
+  id String @id @default(cuid())
+  appointmentId String @unique
+  provider String
+  roomName String @unique
+  status String @default("SCHEDULED")
+  recordingConsent Boolean @default(false)
+  startedAt DateTime?
+  endedAt DateTime?
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+}
+model RefreshSession {
+  id String @id @default(cuid())
+  userId String
+  tokenHash String @unique
+  device String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user User @relation(fields:[userId],references:[id])
+}
+model OtpChallenge {
+  id String @id @default(cuid())
+  email String
+  hash String
+  attempts Int @default(0)
+  expiresAt DateTime
+}
+model AuditLog {
+  id String @id @default(cuid())
+  actorId String?
+  clinicId String?
+  action String
+  entity String
+  entityId String?
+  createdAt DateTime @default(now())
+  @@index([clinicId,createdAt])
+}
+model Notification {
+  id String @id @default(cuid())
+  userId String
+  title String
+  body String
+  readAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId,createdAt])
+}
+model WaitlistEntry {
+  id String @id @default(cuid())
+  doctorId String
+  clinicId String
+  patientId String
+  preferredStart DateTime?
+  preferredEnd DateTime?
+  status String @default("ACTIVE")
+  createdAt DateTime @default(now())
+  @@index([doctorId,clinicId,status])
+}
