@@ -1,0 +1,38 @@
+'use client';
+import Link from 'next/link';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { io } from 'socket.io-client';
+import { HeartPulse, LayoutDashboard, Stethoscope, CalendarDays, FolderHeart, Receipt, Video, Settings, Bell, LogOut, HelpCircle, Menu, ChevronRight, Building2, CalendarClock, ChartNoAxesCombined, ShieldCheck, X } from 'lucide-react';
+import { api, dateLabel, post } from '@/lib/api';
+import type { User, Clinic } from '@/lib/types';
+import { Avatar, Loading, ErrorState } from './ui';
+import { Dashboard } from './views/dashboard';
+import { Doctors } from './views/doctors';
+import { Appointments } from './views/appointments';
+import { Records } from './views/records';
+import { Billing, Telemedicine } from './views/billing-telemedicine';
+import { SettingsView, Notifications, Schedules, Clinics, Analytics } from './views/operations';
+import { useToast } from './providers';
+const links=[['dashboard','Overview',LayoutDashboard],['doctors','Find a doctor',Stethoscope],['appointments','Appointments',CalendarDays],['records','Health records',FolderHeart],['billing','Payments & invoices',Receipt],['telemedicine','Telemedicine',Video]] as const;
+const staffLinks=[['schedules','Schedules',CalendarClock],['clinics','Clinic management',Building2],['analytics','Analytics',ChartNoAxesCombined]] as const;
+export function Workspace({section}:{section:string}){
+  const router=useRouter(),client=useQueryClient(),toast=useToast();const [mobile,setMobile]=useState(false),[clinicId,setClinicId]=useState('');
+  const user=useQuery({queryKey:['me'],queryFn:()=>api<User>('/auth/me'),retry:false});
+  const clinics=useQuery({queryKey:['clinics'],queryFn:()=>api<Clinic[]>('/clinics')});
+  useEffect(()=>{if(user.error&&'status'in user.error&&user.error.status===401)router.replace('/login');},[user.error,router]);
+  useEffect(()=>{if(user.data){const socket=io('/ws',{path:'/socket.io',transports:['websocket'],autoConnect:false});
+    // Socket.IO is served by Nest. Browser connects directly using a short-lived bearer obtained via its cookie.
+    // Same-origin API proxy supports HTTP polling; use the dedicated websocket proxy route below.
+    socket.io.opts.path='/api/socket.io';socket.io.opts.transports=['polling'];socket.connect();
+    const update=()=>{void client.invalidateQueries({queryKey:['appointments']});void client.invalidateQueries({queryKey:['notifications']});void client.invalidateQueries({queryKey:['tele']});};socket.on('appointment.updated',update);socket.on('tele.updated',update);return()=>{socket.disconnect();};}},[user.data?.id,client]);
+  if(user.isPending||(!user.data&&!user.error))return <Loading/>;
+  if(user.error)return <main id="main" className="auth-page"><ErrorState error={user.error} retry={()=>void user.refetch()}/></main>;
+  const me=user.data!;const isStaff=me.globalRole==='SUPER_ADMIN'||me.roles.some(r=>['DOCTOR','CLINIC_ADMIN','RECEPTIONIST','NURSE'].includes(r.role));const admin=me.globalRole==='SUPER_ADMIN'||me.roles.some(r=>r.role==='CLINIC_ADMIN');const clinician=me.roles.some(r=>r.role==='DOCTOR');
+  const allowedClinics=(clinics.data||[]).filter(c=>me.globalRole==='SUPER_ADMIN'||me.roles.some(r=>r.clinicId===c.id));const selectedClinic=clinicId||allowedClinics[0]?.id||clinics.data?.[0]?.id||'';
+  const title=[...links,...staffLinks,['settings','Settings'],['notifications','Notifications']].find(l=>l[0]===section)?.[1]||section;
+  async function logout(){try{await post('/auth/logout');client.clear();router.push('/login');}catch(e){toast((e as Error).message,true);}}
+  const view=section==='dashboard'?<Dashboard user={me} clinicId={isStaff?selectedClinic:undefined}/>:section==='doctors'?<Doctors user={me}/>:section==='appointments'?<Appointments user={me} clinicId={isStaff?selectedClinic:undefined}/>:section==='records'?<Records user={me} clinicId={selectedClinic}/>:section==='billing'?<Billing user={me} clinicId={isStaff?selectedClinic:undefined}/>:section==='telemedicine'?<Telemedicine user={me} clinicId={isStaff?selectedClinic:undefined}/>:section==='settings'?<SettingsView user={me}/>:section==='notifications'?<Notifications/>:section==='schedules'&&(admin||clinician)?<Schedules user={me} clinicId={selectedClinic}/>:section==='clinics'&&admin?<Clinics user={me} clinics={clinics.data||[]}/>:section==='analytics'&&(admin||clinician)?<Analytics clinicId={selectedClinic}/>:<div className="error-panel"><h2>This workspace is available to clinic staff.</h2><p>Choose a page from the sidebar to continue.</p></div>;
+  return <><aside className={`sidebar ${mobile?'open':''}`} aria-label="Workspace navigation"><Link href="/dashboard" className="brand"><span className="brand-mark"><HeartPulse/></span>careflow<span style={{color:'#82a88e'}}>.</span></Link>{mobile&&<button className="icon-button" aria-label="Close navigation" style={{position:'absolute',right:7,top:4}} onClick={()=>setMobile(false)}><X size={18}/></button>}<p className="nav-label">YOUR WORKSPACE</p><nav>{links.map(([key,label,Icon])=><Link key={key} href={`/${key}`} onClick={()=>setMobile(false)} className={`nav-link ${section===key?'active':''}`} aria-current={section===key?'page':undefined}><Icon size={19} strokeWidth={1.7}/>{label}</Link>)}{isStaff&&<><p className="nav-label">CLINIC WORKSPACE</p>{staffLinks.filter(([key])=>key==='clinics'?admin:admin||clinician).map(([key,label,Icon])=><Link key={key} href={`/${key}`} onClick={()=>setMobile(false)} className={`nav-link ${section===key?'active':''}`}><Icon size={19}/>{label}</Link>)}</>}</nav><div className="sidebar-foot"><Link href="/settings" className={`nav-link ${section==='settings'?'active':''}`}><Settings size={19} strokeWidth={1.7}/>Settings</Link><div className="help-card"><HelpCircle className="help-icon" size={24} strokeWidth={1.5}/><h4>A little help, whenever.</h4><p>Find your clinic’s address and contact your care team.</p><Link className="text-link" href="/doctors">Find your care team ↗</Link></div><div className="sidebar-person"><Avatar name={me.fullName}/><div><strong>{me.fullName}</strong><small>{admin?'Administrator':clinician?'Doctor':isStaff?'Clinic team':'Patient account'}</small></div><button className="icon-button" onClick={logout} aria-label="Sign out"><LogOut size={17}/></button></div></div></aside><div className="shell"><header className="topbar"><button className="icon-button mobile-menu" aria-label="Open navigation" onClick={()=>setMobile(!mobile)}><Menu/></button><div className="breadcrumb"><span>My workspace</span><ChevronRight size={14}/><strong>{title}</strong></div><div className="top-actions">{isStaff&&allowedClinics.length>0&&<select aria-label="Active clinic" style={{maxWidth:220,padding:'8px 10px'}} value={selectedClinic} onChange={e=>setClinicId(e.target.value)}>{allowedClinics.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>}<span className="top-date">{dateLabel(new Date().toISOString(),{weekday:'short',day:'numeric',month:'short',year:'numeric'})}</span><Link href="/notifications" className="icon-button notification-link" aria-label="Notifications"><Bell size={20} strokeWidth={1.5}/></Link><Link href="/settings" aria-label="Your profile"><Avatar name={me.fullName}/></Link></div></header><main id="main" className="content" key={section}>{view}<p className="footer-note"><ShieldCheck size={14}/>Your care, thoughtfully connected. · Times shown in Asia/Dhaka</p></main></div></>;
+}
