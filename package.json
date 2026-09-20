@@ -1,13 +1,32 @@
 {
-  "name": "careflow", "version": "1.0.0", "private": true,
-  "workspaces": ["frontend", "backend"],
+  "name": "careflow",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
   "scripts": {
-    "dev:web": "npm run dev -w frontend", "dev:api": "npm run dev -w backend",
+    "dev:web": "npm run dev -w frontend",
+    "dev:api": "npm run dev -w backend",
     "build": "npm run build -w backend && npm run build -w frontend",
-    "typecheck": "npm run typecheck --workspaces", "test": "npm run test -w backend",
-    "db:generate": "npm run db:generate -w backend", "db:migrate": "npm run db:migrate -w backend", "db:seed": "npm run db:seed -w backend",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test -w backend",
+    "db:generate": "npm run db:generate -w backend",
+    "db:migrate": "npm run db:migrate -w backend",
+    "db:seed": "npm run db:seed -w backend",
     "test:e2e": "playwright test"
   },
-  "devDependencies": {"@playwright/test": "^1.56.1", "typescript": "^5.9.3"},
-  "engines": {"node": ">=22"}
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "overrides": {
+    "multer": "^2.5.0",
+    "deepmerge-ts": "^8.0.2"
+  }
 }
