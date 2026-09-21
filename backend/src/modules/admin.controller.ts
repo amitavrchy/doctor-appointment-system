@@ -1,0 +1,14 @@
+import { Body,Controller,Get,Patch,Param,Query,UseGuards,ForbiddenException,ConflictException } from '@nestjs/common';
+import { z } from 'zod';
+import { PrismaService } from '../common/prisma.service';
+import { Actor,AuthGuard,CurrentUser } from '../common/access';
+import { parse } from '../common/validation';
+@Controller()
+export class AdminController {
+  constructor(private db:PrismaService){}
+  private admin(actor:Actor){if(actor.globalRole!=='SUPER_ADMIN')throw new ForbiddenException('Platform administrator required');}
+  @Get('features') async features(){const flags=await this.db.featureFlag.findMany();return {TELEMEDICINE_ENABLED:true,WAITLIST_ENABLED:true,...Object.fromEntries(flags.map(f=>[f.key,f.enabled]))};}
+  @Get('admin/users') @UseGuards(AuthGuard) users(@CurrentUser() actor:Actor,@Query('q') q=''){this.admin(actor);return this.db.user.findMany({where:{OR:[{fullName:{contains:q.slice(0,100),mode:'insensitive'}},{email:{contains:q.slice(0,100),mode:'insensitive'}}]},select:{id:true,fullName:true,email:true,globalRole:true,deletedAt:true,roles:{select:{clinicId:true,role:true}}},take:100,orderBy:{createdAt:'desc'}});}
+  @Patch('admin/users/:id') @UseGuards(AuthGuard) async update(@CurrentUser() actor:Actor,@Param('id') userId:string,@Body() body:unknown){this.admin(actor);const i=parse(z.object({globalRole:z.enum(['PATIENT','SUPER_ADMIN']).optional(),active:z.boolean().optional()}).refine(i=>i.globalRole!==undefined||i.active!==undefined,'Choose an update'),body);if(actor.id===userId)throw new ConflictException('Ask another administrator to change your platform access');return this.db.$transaction(async tx=>{await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('platform-admin-users', 0))`;const user=await tx.user.findUniqueOrThrow({where:{id:userId}});if(user.globalRole==='SUPER_ADMIN'&&(i.active===false||i.globalRole==='PATIENT')&&await tx.user.count({where:{globalRole:'SUPER_ADMIN',deletedAt:null}})<=1)throw new ConflictException('Keep at least one active platform administrator');await tx.user.update({where:{id:userId},data:{...(i.globalRole?{globalRole:i.globalRole}:{}),...(i.active!==undefined?{deletedAt:i.active?null:new Date()}:{})}});if(i.active===false)await tx.refreshSession.deleteMany({where:{userId}});await tx.auditLog.create({data:{actorId:actor.id,action:'USER_ACCESS_UPDATED',entity:'User',entityId:userId}});return {ok:true};});}
+  @Patch('admin/flags/:key') @UseGuards(AuthGuard) async flag(@CurrentUser() actor:Actor,@Param('key') key:string,@Body() body:unknown){this.admin(actor);const name=parse(z.enum(['TELEMEDICINE_ENABLED','WAITLIST_ENABLED']),key),i=parse(z.object({enabled:z.boolean()}),body);return this.db.$transaction(async tx=>{const flag=await tx.featureFlag.upsert({where:{key:name},create:{key:name,...i},update:i});await tx.auditLog.create({data:{actorId:actor.id,action:'FEATURE_FLAG_UPDATED',entity:'FeatureFlag',entityId:name}});return flag;});}
+}

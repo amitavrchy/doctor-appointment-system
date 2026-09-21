@@ -16,7 +16,7 @@ export class ClinicalService {
       const patient=await this.db.user.findUniqueOrThrow({where:{id:patientId}});
       if(!patient.consentHistory&&!clinicId)throw new ForbiddenException('Choose a clinic. Cross-clinic history requires patient consent.');
     }
-    const appointments=await this.db.appointment.findMany({where:{patientId,...(actor.id!==patientId&&clinicId?{clinicId}:{})},include:{clinic:true,doctor:{include:{user:{select:{fullName:true}}}},notes:{include:{revisions:true}},prescription:true},orderBy:{startAt:'desc'},take:100});
+    const appointments=await this.db.appointment.findMany({where:{patientId,...(actor.id!==patientId&&clinicId?{clinicId}:{})},include:{clinic:true,doctor:{include:{user:{select:{fullName:true}}}},notes:{include:{revisions:true}},prescription:true,vitals:true},orderBy:{startAt:'desc'},take:100});
     await this.db.auditLog.create({data:{actorId:actor.id,action:'HISTORY_VIEWED',entity:'User',entityId:patientId,clinicId}});return appointments;
   }
   async notes(actor:Actor,appointmentId:string,soap:Prisma.InputJsonValue,noteId?:string) {

@@ -165,6 +165,8 @@ model Appointment {
   prescription Prescription?
   payment Payment?
   teleSession TelemedicineSession?
+  attachments Attachment[]
+  vitals Vital[]
   @@index([doctorId,startAt])
   @@index([clinicId,status])
   @@index([patientId,startAt])
@@ -272,4 +274,40 @@ model WaitlistEntry {
   status String @default("ACTIVE")
   createdAt DateTime @default(now())
   @@index([doctorId,clinicId,status])
+}
+model Attachment {
+  id String @id @default(cuid())
+  appointmentId String
+  uploadedBy String
+  name String
+  mime String
+  size Int
+  encrypted Bytes
+  createdAt DateTime @default(now())
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+  @@index([appointmentId])
+}
+model Vital {
+  id String @id @default(cuid())
+  appointmentId String
+  authorId String
+  systolic Int?
+  diastolic Int?
+  pulse Int?
+  temperature Float?
+  oxygen Float?
+  weight Float?
+  createdAt DateTime @default(now())
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+  @@index([appointmentId])
+}
+model PdfArtifact {
+  id String @id
+  bytes Bytes
+  createdAt DateTime @default(now())
+}
+model FeatureFlag {
+  key String @id
+  enabled Boolean @default(true)
+  updatedAt DateTime @updatedAt
 }

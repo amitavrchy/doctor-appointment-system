@@ -20,6 +20,7 @@ export class AppointmentsService {
     return this.db.appointment.findMany({where:{...(clinicId?{clinicId}:{}),...(!privileged&&actor.globalRole!=='SUPER_ADMIN'?{OR:[{patientId:actor.id},{doctorId:actor.id}]}:{})},include:appointmentInclude,orderBy:{startAt:'desc'},take:200});
   }
   async hold(actor:Actor,i:{doctorId:string;clinicId:string;startAt:string;type:string;patientId?:string}) {
+    if(i.type==='TELEMEDICINE'&&(await this.db.featureFlag.findUnique({where:{key:'TELEMEDICINE_ENABLED'}}))?.enabled===false)throw new BadRequestException('Telemedicine booking is temporarily unavailable');
     const patientId = i.patientId || actor.id;
     if (patientId !== actor.id) requireRole(actor,i.clinicId,['RECEPTIONIST','CLINIC_ADMIN']);
     if (!await this.db.user.findFirst({where:{id:patientId,deletedAt:null}})) throw new BadRequestException('Patient not found');
@@ -79,6 +80,7 @@ export class AppointmentsService {
   }
   async transition(actor:Actor,id:string,status:AppointmentStatus,reason?:string) {
     const a=await this.get(actor,id);
+    if(status==='CANCELLED'&&actor.id!==a.patientId&&actor.id!==a.doctorId)requireRole(actor,a.clinicId,['RECEPTIONIST','CLINIC_ADMIN']);
     if(status!=='CANCELLED') {
       if(actor.id!==a.doctorId) requireRole(actor,a.clinicId,status==='CHECKED_IN'?['RECEPTIONIST','CLINIC_ADMIN']:['DOCTOR']);
       if(['IN_PROGRESS','COMPLETED'].includes(status)&&actor.id!==a.doctorId) throw new ForbiddenException('Only the treating doctor can update the consultation');

@@ -22,10 +22,7 @@ export function Workspace({section}:{section:string}){
   const user=useQuery({queryKey:['me'],queryFn:()=>api<User>('/auth/me'),retry:false});
   const clinics=useQuery({queryKey:['clinics'],queryFn:()=>api<Clinic[]>('/clinics')});
   useEffect(()=>{if(user.error&&'status'in user.error&&user.error.status===401)router.replace('/login');},[user.error,router]);
-  useEffect(()=>{if(user.data){const socket=io('/ws',{path:'/socket.io',transports:['websocket'],autoConnect:false});
-    // Socket.IO is served by Nest. Browser connects directly using a short-lived bearer obtained via its cookie.
-    // Same-origin API proxy supports HTTP polling; use the dedicated websocket proxy route below.
-    socket.io.opts.path='/api/socket.io';socket.io.opts.transports=['polling'];socket.connect();
+  useEffect(()=>{if(user.data){const socket=io('/ws',{path:'/api/socket.io',transports:['polling'],withCredentials:true});
     const update=()=>{void client.invalidateQueries({queryKey:['appointments']});void client.invalidateQueries({queryKey:['notifications']});void client.invalidateQueries({queryKey:['tele']});};socket.on('appointment.updated',update);socket.on('tele.updated',update);return()=>{socket.disconnect();};}},[user.data?.id,client]);
   if(user.isPending||(!user.data&&!user.error))return <Loading/>;
   if(user.error)return <main id="main" className="auth-page"><ErrorState error={user.error} retry={()=>void user.refetch()}/></main>;

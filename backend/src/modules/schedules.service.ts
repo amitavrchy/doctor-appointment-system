@@ -11,6 +11,7 @@ export class SchedulesService {
   async slots(doctorId:string,clinicId:string,from:string,to:string,type?:string,tx:DB=this.db,ignoreHoldId?:string) {
     const clinic = await tx.clinic.findFirst({where:{id:clinicId,active:true}});
     if (!clinic) throw new BadRequestException('Clinic not found');
+    if(!await tx.doctorClinic.findFirst({where:{doctorId,clinicId,doctor:{user:{deletedAt:null}}}}))throw new BadRequestException('Doctor is not available at this clinic');
     const start = DateTime.fromISO(from,{zone:clinic.timezone}).startOf('day');
     const end = DateTime.fromISO(to,{zone:clinic.timezone}).endOf('day');
     if (!start.isValid || !end.isValid || end < start || end.diff(start,'days').days > 31) throw new BadRequestException('Choose a date range of up to 31 days');
