@@ -10,3 +10,8 @@ artifacts
 playwright-report
 test-results
 playwright-report
+
+**/.workspace-cache
+**/test-results
+**/artifacts
+**/playwright-report

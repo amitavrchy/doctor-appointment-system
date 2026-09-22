@@ -1,0 +1,8 @@
+node_modules
+.workspace-cache
+dist
+coverage
+package-lock.json
+prisma/migrations
+docs/Project_spec.md
+.env*

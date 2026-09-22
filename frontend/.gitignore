@@ -12,6 +12,8 @@ Thumbs.db
 .idea/
 .vscode/
 *.tsbuildinfo
+.env.*
+!.env.example
 test-results/
 playwright-report/
 artifacts/

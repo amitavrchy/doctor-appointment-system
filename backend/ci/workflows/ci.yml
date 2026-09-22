@@ -1,0 +1,68 @@
+name: Careflow checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: careflow
+          POSTGRES_PASSWORD: careflow_ci
+          POSTGRES_DB: careflow
+        ports: ['5432:5432']
+        options: --health-cmd='pg_isready -U careflow' --health-interval=5s --health-retries=20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: --health-cmd='redis-cli ping' --health-interval=5s --health-retries=20
+    env:
+      DATABASE_URL: postgresql://careflow:careflow_ci@localhost:5432/careflow?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-at-least-32-characters
+      JWT_REFRESH_SECRET: ci-refresh-secret-at-least-32-characters
+      OTP_PEPPER: ci-otp-secret-at-least-32-characters
+      ATTACHMENT_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      DEMO_MODE: 'true'
+      SEED_PASSWORD: CareflowDemo2026!
+      PAYMENT_PROVIDER: demo
+      TELEMEDICINE_PROVIDER: demo
+      APP_URL: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm --prefix backend ci
+      - run: npm --prefix frontend ci
+      - run: npm --prefix backend run setup
+      - run: npm --prefix backend run db:generate
+      - run: npm --prefix backend run db:migrate
+      - run: npm --prefix backend run db:seed
+      - run: npm --prefix backend run format:check
+      - run: npm --prefix backend run typecheck
+      - run: npm --prefix backend test
+      - run: npm --prefix backend run build
+      - run: npm --prefix frontend run build
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm --prefix frontend run test:e2e
+      - run: npm --prefix backend audit
+      - run: npm --prefix frontend audit
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure-artifacts
+          path: frontend/test-results/
+          retention-days: 7
