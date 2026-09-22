@@ -4,14 +4,209 @@ import { useQuery } from '@tanstack/react-query';
 import { Upload, Download, Activity } from 'lucide-react';
 import { api, post, dateLabel } from '@/lib/api';
 import { useToast } from './providers';
-export function Attachments({appointmentId}:{appointmentId:string}){
-  const toast=useToast();const [busy,setBusy]=useState(false);const query=useQuery({queryKey:['attachments',appointmentId],queryFn:()=>api<{id:string;name:string;size:number;createdAt:string}[]>(`/appointments/${appointmentId}/attachments`)});
-  async function upload(file:File){setBusy(true);try{if(file.size>5*1024*1024)throw new Error('Choose a PDF, PNG, or JPEG up to 5 MB');const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('Unable to read the file'));reader.readAsDataURL(file);});await post(`/appointments/${appointmentId}/attachments`,{name:file.name,mime:file.type,base64:data});await query.refetch();toast('Document saved securely.');}catch(e){toast((e as Error).message,true);}finally{setBusy(false);}}
-  return <section style={{marginTop:24}}><hr/><h3>Care documents</h3><p className="small" style={{margin:'8px 0 16px'}}>PDF, PNG, JPEG · Up to 5 MB · Encrypted at rest</p>{query.error&&<p className="form-error">{query.error.message}</p>}{query.data?.map(file=><div className="session-item" key={file.id}><div><strong>{file.name}</strong><small>{Math.ceil(file.size/1024)} KB · {dateLabel(file.createdAt)}</small></div><a className="icon-button" href={`/api/attachments/${file.id}`} target="_blank" rel="noreferrer" aria-label={`Download ${file.name}`}><Download size={18}/></a></div>)}<label style={{marginTop:17}}><span><Upload size={16} style={{verticalAlign:'middle',marginRight:6}}/>{busy?'Saving document…':'Add a document'}</span><input type="file" accept="application/pdf,image/png,image/jpeg" disabled={busy} onChange={e=>{if(e.target.files?.[0])void upload(e.target.files[0]);e.target.value='';}}/></label></section>;
+export function Attachments({ appointmentId }: { appointmentId: string }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const query = useQuery({
+    queryKey: ['attachments', appointmentId],
+    queryFn: () =>
+      api<{ id: string; name: string; size: number; createdAt: string }[]>(
+        `/appointments/${appointmentId}/attachments`,
+      ),
+  });
+  async function upload(file: File) {
+    setBusy(true);
+    try {
+      if (file.size > 5 * 1024 * 1024) throw new Error('Choose a PDF, PNG, or JPEG up to 5 MB');
+      const data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('Unable to read the file'));
+        reader.readAsDataURL(file);
+      });
+      await post(`/appointments/${appointmentId}/attachments`, {
+        name: file.name,
+        mime: file.type,
+        base64: data,
+      });
+      await query.refetch();
+      toast('Document saved securely.');
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section style={{ marginTop: 24 }}>
+      <hr />
+      <h3>Care documents</h3>
+      <p className="small" style={{ margin: '8px 0 16px' }}>
+        PDF, PNG, JPEG · Up to 5 MB · Encrypted at rest
+      </p>
+      {query.error && <p className="form-error">{query.error.message}</p>}
+      {query.data?.map((file) => (
+        <div className="session-item" key={file.id}>
+          <div>
+            <strong>{file.name}</strong>
+            <small>
+              {Math.ceil(file.size / 1024)} KB · {dateLabel(file.createdAt)}
+            </small>
+          </div>
+          <a
+            className="icon-button"
+            href={`/api/attachments/${file.id}`}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Download ${file.name}`}
+          >
+            <Download size={18} />
+          </a>
+        </div>
+      ))}
+      <label style={{ marginTop: 17 }}>
+        <span>
+          <Upload size={16} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+          {busy ? 'Saving document…' : 'Add a document'}
+        </span>
+        <input
+          type="file"
+          accept="application/pdf,image/png,image/jpeg"
+          disabled={busy}
+          onChange={(e) => {
+            if (e.target.files?.[0]) void upload(e.target.files[0]);
+            e.target.value = '';
+          }}
+        />
+      </label>
+    </section>
+  );
 }
-export type Vital={id:string;systolic:number|null;diastolic:number|null;pulse:number|null;temperature:number|null;oxygen:number|null;weight:number|null;createdAt:string};
-export function Vitals({appointmentId,editable=false}:{appointmentId:string;editable?:boolean}){
-  const toast=useToast(),[busy,setBusy]=useState(false);const [values,setValues]=useState({systolic:'',diastolic:'',pulse:'',temperature:'',oxygen:'',weight:''});const query=useQuery({queryKey:['vitals',appointmentId],queryFn:()=>api<Vital[]>(`/appointments/${appointmentId}/vitals`)});
-  const fields=[['systolic','Systolic (mmHg)',40,300],['diastolic','Diastolic (mmHg)',20,200],['pulse','Pulse (bpm)',20,250],['temperature','Temperature (°C)',30,45],['oxygen','SpO₂ (%)',50,100],['weight','Weight (kg)',1,500]] as const;
-  return <section style={{marginTop:24}}><hr/><h3><Activity size={18} style={{verticalAlign:'middle',marginRight:7}}/>Vitals & observations</h3>{query.error&&<p className="form-error" style={{marginTop:12}}>{query.error.message}</p>}{query.data?.map(v=><div className="medication" key={v.id}><p className="small">{dateLabel(v.createdAt,{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})}</p><div className="row-actions" style={{marginTop:8}}>{fields.filter(([key])=>v[key]!==null).map(([key,label])=><span className="tag" key={key}>{label}: {v[key]}</span>)}</div></div>)}{editable&&<form onSubmit={async e=>{e.preventDefault();setBusy(true);try{await post(`/appointments/${appointmentId}/vitals`,Object.fromEntries(Object.entries(values).filter(([,v])=>v!=='').map(([k,v])=>[k,Number(v)])));await query.refetch();setValues({systolic:'',diastolic:'',pulse:'',temperature:'',oxygen:'',weight:''});toast('Observations saved.');}catch(e){toast((e as Error).message,true);}finally{setBusy(false);}}}><div className="form-grid" style={{marginTop:16}}>{fields.map(([key,label,min,max])=><label key={key}>{label}<input type="number" min={min} max={max} step={key==='temperature'||key==='weight'||key==='oxygen'?0.1:1} value={values[key]} onChange={e=>setValues({...values,[key]:e.target.value})}/></label>)}</div><div className="form-actions"><button className="button secondary" disabled={busy}>Save observations</button></div></form>}</section>;
+export type Vital = {
+  id: string;
+  systolic: number | null;
+  diastolic: number | null;
+  pulse: number | null;
+  temperature: number | null;
+  oxygen: number | null;
+  weight: number | null;
+  createdAt: string;
+};
+export function Vitals({
+  appointmentId,
+  editable = false,
+}: {
+  appointmentId: string;
+  editable?: boolean;
+}) {
+  const toast = useToast(),
+    [busy, setBusy] = useState(false);
+  const [values, setValues] = useState({
+    systolic: '',
+    diastolic: '',
+    pulse: '',
+    temperature: '',
+    oxygen: '',
+    weight: '',
+  });
+  const query = useQuery({
+    queryKey: ['vitals', appointmentId],
+    queryFn: () => api<Vital[]>(`/appointments/${appointmentId}/vitals`),
+  });
+  const fields = [
+    ['systolic', 'Systolic (mmHg)', 40, 300],
+    ['diastolic', 'Diastolic (mmHg)', 20, 200],
+    ['pulse', 'Pulse (bpm)', 20, 250],
+    ['temperature', 'Temperature (°C)', 30, 45],
+    ['oxygen', 'SpO₂ (%)', 50, 100],
+    ['weight', 'Weight (kg)', 1, 500],
+  ] as const;
+  return (
+    <section style={{ marginTop: 24 }}>
+      <hr />
+      <h3>
+        <Activity size={18} style={{ verticalAlign: 'middle', marginRight: 7 }} />
+        Vitals & observations
+      </h3>
+      {query.error && (
+        <p className="form-error" style={{ marginTop: 12 }}>
+          {query.error.message}
+        </p>
+      )}
+      {query.data?.map((v) => (
+        <div className="medication" key={v.id}>
+          <p className="small">
+            {dateLabel(v.createdAt, {
+              day: 'numeric',
+              month: 'short',
+              hour: 'numeric',
+              minute: '2-digit',
+            })}
+          </p>
+          <div className="row-actions" style={{ marginTop: 8 }}>
+            {fields
+              .filter(([key]) => v[key] !== null)
+              .map(([key, label]) => (
+                <span className="tag" key={key}>
+                  {label}: {v[key]}
+                </span>
+              ))}
+          </div>
+        </div>
+      ))}
+      {editable && (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try {
+              await post(
+                `/appointments/${appointmentId}/vitals`,
+                Object.fromEntries(
+                  Object.entries(values)
+                    .filter(([, v]) => v !== '')
+                    .map(([k, v]) => [k, Number(v)]),
+                ),
+              );
+              await query.refetch();
+              setValues({
+                systolic: '',
+                diastolic: '',
+                pulse: '',
+                temperature: '',
+                oxygen: '',
+                weight: '',
+              });
+              toast('Observations saved.');
+            } catch (e) {
+              toast((e as Error).message, true);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <div className="form-grid" style={{ marginTop: 16 }}>
+            {fields.map(([key, label, min, max]) => (
+              <label key={key}>
+                {label}
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  step={key === 'temperature' || key === 'weight' || key === 'oxygen' ? 0.1 : 1}
+                  value={values[key]}
+                  onChange={(e) => setValues({ ...values, [key]: e.target.value })}
+                />
+              </label>
+            ))}
+          </div>
+          <div className="form-actions">
+            <button className="button secondary" disabled={busy}>
+              Save observations
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
 }

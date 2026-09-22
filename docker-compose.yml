@@ -5,19 +5,19 @@ services:
       POSTGRES_USER: careflow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-careflow_dev}
       POSTGRES_DB: careflow
-    ports: ["127.0.0.1:55435:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
+    ports: ['127.0.0.1:55435:5432']
+    volumes: ['pgdata:/var/lib/postgresql/data']
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U careflow"]
+      test: ['CMD-SHELL', 'pg_isready -U careflow']
       interval: 5s
       retries: 20
   redis:
     image: redis:7-alpine
-    ports: ["127.0.0.1:6380:6379"]
-    volumes: ["redisdata:/data"]
+    ports: ['127.0.0.1:6380:6379']
+    volumes: ['redisdata:/data']
     command: redis-server --appendonly yes
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       retries: 20
   api:
@@ -28,18 +28,33 @@ services:
     environment:
       DATABASE_URL: postgresql://careflow:${POSTGRES_PASSWORD:-careflow_dev}@postgres:5432/careflow?schema=public
       REDIS_URL: redis://redis:6379
-    ports: ["127.0.0.1:4000:4000"]
+    ports: ['127.0.0.1:4000:4000']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      retries: 20
+      start_period: 15s
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
   web:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      args:
+        API_INTERNAL_URL: http://api:4000
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
     environment:
       API_INTERNAL_URL: http://api:4000
-    ports: ["3000:3000"]
-    depends_on: [api]
+    ports: ['3000:3000']
+    depends_on:
+      api: { condition: service_healthy }
 volumes:
   pgdata:
   redisdata:

@@ -1,4 +1,17 @@
-import { Body, Controller, Get, Post, Param, Req, Res, Headers, UseGuards, ConflictException, RawBodyRequest, BadRequestException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Param,
+  Req,
+  Res,
+  Headers,
+  UseGuards,
+  ConflictException,
+  RawBodyRequest,
+  BadRequestException,
+} from '@nestjs/common';
 import { z } from 'zod';
 import type { Request, Response } from 'express';
 import { Actor, AuthGuard, CurrentUser } from '../common/access';
@@ -11,9 +24,129 @@ import { AuditService } from '../common/audit.service';
 import { lockDoctors } from '../common/locks/pg-advisory.lock';
 @Controller('payments')
 export class PaymentsController {
-  constructor(private db:PrismaService,private appointments:AppointmentsService,private pdf:PdfService,private audit:AuditService){}
-  @Post('intent') @UseGuards(AuthGuard) async intent(@CurrentUser() actor:Actor,@Body() body:unknown){const {appointmentId}=parse(z.object({appointmentId:id}),body);const a=await this.appointments.get(actor,appointmentId);if(['CANCELLED','RESCHEDULED','NO_SHOW'].includes(a.status))throw new ConflictException('This appointment cannot be paid');const p=a.payment;if(!p)throw new ConflictException('No payment exists');if(!['CREATED','REQUIRES_ACTION'].includes(p.status))throw new ConflictException('Payment is already processed');const provider=paymentProvider(p.provider);const intent=await provider.createIntent(p.amountMinor,p.currency,p.idempotencyKey);await this.db.payment.updateMany({where:{id:p.id,status:{in:['CREATED','REQUIRES_ACTION']}},data:{providerRef:intent.reference,status:'REQUIRES_ACTION'}});return {...intent,paymentId:p.id,provider:p.provider,amountMinor:p.amountMinor,currency:p.currency};}
-  @Post(':id/demo-settle') @UseGuards(AuthGuard) async demo(@CurrentUser() actor:Actor,@Param('id') id:string){const initial=await this.db.payment.findUniqueOrThrow({where:{id}});const a=await this.appointments.get(actor,initial.appointmentId);if(initial.provider!=='demo'||process.env.DEMO_MODE!=='true')throw new BadRequestException('Demo settlement is disabled');return this.db.$transaction(async tx=>{await lockDoctors(tx,a.doctorId);const p=await tx.payment.findUniqueOrThrow({where:{id},include:{appointment:true}});if(['CANCELLED','RESCHEDULED','NO_SHOW'].includes(p.appointment.status))throw new ConflictException('Appointment is no longer payable');if(p.status==='SUCCEEDED')return p;if(!['CREATED','REQUIRES_ACTION'].includes(p.status))throw new ConflictException('Payment has changed');const paid=await tx.payment.update({where:{id},data:{status:'SUCCEEDED',providerRef:p.providerRef||`demo_${p.id}`}});await tx.auditLog.create({data:{actorId:actor.id,clinicId:a.clinicId,action:'PAYMENT_SUCCEEDED',entity:'Payment',entityId:id}});return paid;});}
-  @Post('webhooks/:provider') async webhook(@Param('provider') provider:string,@Headers('stripe-signature') signature:string,@Req() req:RawBodyRequest<Request>){if(!req.rawBody)throw new BadRequestException('Raw request body required');const event=paymentProvider(provider).parseWebhook(req.rawBody,signature||'');if(!event.paid)return {received:true};const initial=await this.db.payment.findUnique({where:{providerRef:event.reference},include:{appointment:true}});if(!initial||initial.provider!==provider||initial.amountMinor!==event.amountMinor||initial.currency!==event.currency)throw new BadRequestException('Webhook payment mismatch');return this.db.$transaction(async tx=>{await lockDoctors(tx,initial.appointment.doctorId);if(await tx.webhookEvent.findUnique({where:{id:event.eventId}}))return {received:true};const p=await tx.payment.findUniqueOrThrow({where:{id:initial.id},include:{appointment:true}});await tx.webhookEvent.create({data:{id:event.eventId}});await tx.payment.updateMany({where:{id:p.id,status:{in:['CREATED','REQUIRES_ACTION']}},data:['CANCELLED','RESCHEDULED','NO_SHOW'].includes(p.appointment.status)?{status:'REFUND_PENDING',refundMinor:p.amountMinor}:{status:'SUCCEEDED'}});return {received:true};});}
-  @Get(':appointmentId/invoice') @UseGuards(AuthGuard) async invoice(@CurrentUser() actor:Actor,@Param('appointmentId') id:string,@Res() res:Response){const a=await this.appointments.get(actor,id);const p=a.payment;if(!p)throw new ConflictException('No invoice exists');const data=await this.pdf.render('Consultation invoice',[`Invoice: ${p.id}`,`Patient: ${a.patient.fullName}`,`Clinic: ${a.clinic.name}`,`Doctor: ${a.doctor.user.fullName}`,`Date: ${a.startAt.toISOString()}`,`Amount: ${(p.amountMinor/100).toFixed(2)} ${p.currency}`,`Payment status: ${p.status}`,`Refund: ${(p.refundMinor/100).toFixed(2)} ${p.currency}`]);await this.audit.record(actor.id,'INVOICE_EXPORTED','Payment',p.id,a.clinicId);res.type('application/pdf').attachment(`invoice-${p.id}.pdf`).send(data);}
+  constructor(
+    private db: PrismaService,
+    private appointments: AppointmentsService,
+    private pdf: PdfService,
+    private audit: AuditService,
+  ) {}
+  @Post('intent') @UseGuards(AuthGuard) async intent(
+    @CurrentUser() actor: Actor,
+    @Body() body: unknown,
+  ) {
+    const { appointmentId } = parse(z.object({ appointmentId: id }), body);
+    const a = await this.appointments.get(actor, appointmentId);
+    if (['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(a.status))
+      throw new ConflictException('This appointment cannot be paid');
+    const p = a.payment;
+    if (!p) throw new ConflictException('No payment exists');
+    if (!['CREATED', 'REQUIRES_ACTION'].includes(p.status))
+      throw new ConflictException('Payment is already processed');
+    const provider = paymentProvider(p.provider);
+    const intent = await provider.createIntent(p.amountMinor, p.currency, p.idempotencyKey);
+    await this.db.payment.updateMany({
+      where: { id: p.id, status: { in: ['CREATED', 'REQUIRES_ACTION'] } },
+      data: { providerRef: intent.reference, status: 'REQUIRES_ACTION' },
+    });
+    return {
+      ...intent,
+      paymentId: p.id,
+      provider: p.provider,
+      amountMinor: p.amountMinor,
+      currency: p.currency,
+    };
+  }
+  @Post(':id/demo-settle') @UseGuards(AuthGuard) async demo(
+    @CurrentUser() actor: Actor,
+    @Param('id') id: string,
+  ) {
+    const initial = await this.db.payment.findUniqueOrThrow({ where: { id } });
+    const a = await this.appointments.get(actor, initial.appointmentId);
+    if (initial.provider !== 'demo' || process.env.DEMO_MODE !== 'true')
+      throw new BadRequestException('Demo settlement is disabled');
+    return this.db.$transaction(async (tx) => {
+      await lockDoctors(tx, a.doctorId);
+      const p = await tx.payment.findUniqueOrThrow({
+        where: { id },
+        include: { appointment: true },
+      });
+      if (['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(p.appointment.status))
+        throw new ConflictException('Appointment is no longer payable');
+      if (p.status === 'SUCCEEDED') return p;
+      if (!['CREATED', 'REQUIRES_ACTION'].includes(p.status))
+        throw new ConflictException('Payment has changed');
+      const paid = await tx.payment.update({
+        where: { id },
+        data: { status: 'SUCCEEDED', providerRef: p.providerRef || `demo_${p.id}` },
+      });
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          clinicId: a.clinicId,
+          action: 'PAYMENT_SUCCEEDED',
+          entity: 'Payment',
+          entityId: id,
+        },
+      });
+      return paid;
+    });
+  }
+  @Post('webhooks/:provider') async webhook(
+    @Param('provider') provider: string,
+    @Headers('stripe-signature') signature: string,
+    @Req() req: RawBodyRequest<Request>,
+  ) {
+    if (!req.rawBody) throw new BadRequestException('Raw request body required');
+    const event = paymentProvider(provider).parseWebhook(req.rawBody, signature || '');
+    if (!event.paid) return { received: true };
+    const initial = await this.db.payment.findUnique({
+      where: { providerRef: event.reference },
+      include: { appointment: true },
+    });
+    if (
+      !initial ||
+      initial.provider !== provider ||
+      initial.amountMinor !== event.amountMinor ||
+      initial.currency !== event.currency
+    )
+      throw new BadRequestException('Webhook payment mismatch');
+    return this.db.$transaction(async (tx) => {
+      await lockDoctors(tx, initial.appointment.doctorId);
+      if (await tx.webhookEvent.findUnique({ where: { id: event.eventId } }))
+        return { received: true };
+      const p = await tx.payment.findUniqueOrThrow({
+        where: { id: initial.id },
+        include: { appointment: true },
+      });
+      await tx.webhookEvent.create({ data: { id: event.eventId } });
+      await tx.payment.updateMany({
+        where: { id: p.id, status: { in: ['CREATED', 'REQUIRES_ACTION'] } },
+        data: ['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(p.appointment.status)
+          ? { status: 'REFUND_PENDING', refundMinor: p.amountMinor }
+          : { status: 'SUCCEEDED' },
+      });
+      return { received: true };
+    });
+  }
+  @Get(':appointmentId/invoice') @UseGuards(AuthGuard) async invoice(
+    @CurrentUser() actor: Actor,
+    @Param('appointmentId') id: string,
+    @Res() res: Response,
+  ) {
+    const a = await this.appointments.get(actor, id);
+    const p = a.payment;
+    if (!p) throw new ConflictException('No invoice exists');
+    const data = await this.pdf.render('Consultation invoice', [
+      `Invoice: ${p.id}`,
+      `Patient: ${a.patient.fullName}`,
+      `Clinic: ${a.clinic.name}`,
+      `Doctor: ${a.doctor.user.fullName}`,
+      `Date: ${a.startAt.toISOString()}`,
+      `Amount: ${(p.amountMinor / 100).toFixed(2)} ${p.currency}`,
+      `Payment status: ${p.status}`,
+      `Refund: ${(p.refundMinor / 100).toFixed(2)} ${p.currency}`,
+    ]);
+    await this.audit.record(actor.id, 'INVOICE_EXPORTED', 'Payment', p.id, a.clinicId);
+    res.type('application/pdf').attachment(`invoice-${p.id}.pdf`).send(data);
+  }
 }

@@ -20,5 +20,31 @@ import { OperationsController } from './modules/operations.controller';
 import { JobsService } from './modules/jobs.service';
 import { AdminController } from './modules/admin.controller';
 import { DocumentsController } from './modules/documents.controller';
-@Module({imports:[JwtModule.register({})],controllers:[AuthController,ClinicsController,SchedulesController,AppointmentsController,ClinicalController,PaymentsController,TelemedicineController,OperationsController,DocumentsController,AdminController],providers:[PrismaService,AuditService,AuthGuard,AuthService,SchedulesService,AppointmentsService,ClinicalService,PdfService,RealtimeGateway,JobsService]})
+@Module({
+  imports: [JwtModule.register({})],
+  controllers: [
+    AuthController,
+    ClinicsController,
+    SchedulesController,
+    AppointmentsController,
+    ClinicalController,
+    PaymentsController,
+    TelemedicineController,
+    OperationsController,
+    DocumentsController,
+    AdminController,
+  ],
+  providers: [
+    PrismaService,
+    AuditService,
+    AuthGuard,
+    AuthService,
+    SchedulesService,
+    AppointmentsService,
+    ClinicalService,
+    PdfService,
+    RealtimeGateway,
+    JobsService,
+  ],
+})
 export class AppModule {}

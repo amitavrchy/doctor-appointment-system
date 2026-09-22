@@ -1,32 +1,523 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, MapPin, ShieldCheck, ArrowUpRight, CalendarDays, Clock3, CheckCircle2, Video } from 'lucide-react';
+import {
+  Search,
+  MapPin,
+  ShieldCheck,
+  ArrowUpRight,
+  CalendarDays,
+  Clock3,
+  CheckCircle2,
+  Video,
+} from 'lucide-react';
 import { api, post, money, timeLabel, dateLabel, localDate } from '@/lib/api';
 import type { Doctor, Clinic, User, Slot, Hold, Appointment } from '@/lib/types';
 import { useHold } from '@/lib/store';
 import { Avatar, Empty, Loading, ErrorState, Modal, PageHeading } from '../ui';
 import { useToast } from '../providers';
-export function Doctors({user}:{user:User}){
-  const [search,setSearch]=useState(''),[clinicId,setClinicId]=useState(''),[specialty,setSpecialty]=useState(''),[selected,setSelected]=useState<Doctor|null>(null);
-  const doctors=useQuery({queryKey:['doctors'],queryFn:()=>api<Doctor[]>('/doctors')});const clinics=useQuery({queryKey:['clinics'],queryFn:()=>api<Clinic[]>('/clinics')});
-  useEffect(()=>{const target=new URLSearchParams(window.location.search).get('doctor');if(target&&doctors.data)setSelected(doctors.data.find(d=>d.userId===target)||null);},[doctors.data]);
-  if(doctors.isPending)return <Loading/>;if(doctors.error)return <ErrorState error={doctors.error} retry={()=>void doctors.refetch()}/>;
-  const filtered=doctors.data.filter(d=>(!search||`${d.user.fullName} ${d.specialties.join(' ')}`.toLowerCase().includes(search.toLowerCase()))&&(!clinicId||d.memberships.some(m=>m.clinicId===clinicId))&&(!specialty||d.specialties.includes(specialty)));
-  return <><PageHeading eyebrow="Find your care team" title="A doctor who feels right for you." description="Thoughtful care, at a time and place that fits your life."/><div className="filters"><div className="search-field"><Search size={19}/><input aria-label="Search doctors" placeholder="Search by name or specialty…" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Filter by specialty" value={specialty} onChange={e=>setSpecialty(e.target.value)}><option value="">All specialties</option>{[...new Set(doctors.data.flatMap(d=>d.specialties))].map(s=><option key={s}>{s}</option>)}</select><select aria-label="Filter by clinic" value={clinicId} onChange={e=>setClinicId(e.target.value)}><option value="">All clinics</option>{clinics.data?.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div className="section-row"><p className="small">{filtered.length} doctors to connect with</p><span className="small">Consultation fees in BDT</span></div>{filtered.length?<div className="doctor-grid">{filtered.map(d=><article className="doctor-card" key={d.userId}><div className="doctor-top"><Avatar name={d.user.fullName} color={d.color} large/><span className="tag"><ShieldCheck size={14} style={{marginRight:5}}/>{d.licenseNumber}</span></div><h3>{d.user.fullName}</h3><p className="specialty">{d.specialties.join(' · ')}</p><p className="doctor-bio">{d.bio}</p><div className="detail-line"><MapPin size={16}/>{d.memberships.map(m=>m.clinic.name.replace(' Care Center','').replace(' Health Studio','')).join(' · ')}</div><div className="detail-line"><Video size={16}/>In-person & online · {d.languages.join(', ')}</div><div className="doctor-fee"><div><small>Consultation from</small><br/><strong>{money(Math.min(...d.memberships.map(m=>m.teleFeeMinor)))}</strong></div><button className="button primary" onClick={()=>setSelected(d)}>Book a visit <ArrowUpRight size={16}/></button></div></article>)}</div>:<Empty title="No matches just yet" body="Try another specialty, clinic, or doctor name."/>}{selected&&<BookingModal doctor={selected} user={user} initialClinic={clinicId} onClose={()=>setSelected(null)}/>}</>;
+export function Doctors({ user }: { user: User }) {
+  const [search, setSearch] = useState(''),
+    [clinicId, setClinicId] = useState(''),
+    [specialty, setSpecialty] = useState(''),
+    [selected, setSelected] = useState<Doctor | null>(null);
+  const doctors = useQuery({ queryKey: ['doctors'], queryFn: () => api<Doctor[]>('/doctors') });
+  const clinics = useQuery({ queryKey: ['clinics'], queryFn: () => api<Clinic[]>('/clinics') });
+  useEffect(() => {
+    const target = new URLSearchParams(window.location.search).get('doctor');
+    if (target && doctors.data) setSelected(doctors.data.find((d) => d.userId === target) || null);
+  }, [doctors.data]);
+  if (doctors.isPending) return <Loading />;
+  if (doctors.error)
+    return <ErrorState error={doctors.error} retry={() => void doctors.refetch()} />;
+  const filtered = doctors.data.filter(
+    (d) =>
+      (!search ||
+        `${d.user.fullName} ${d.specialties.join(' ')}`
+          .toLowerCase()
+          .includes(search.toLowerCase())) &&
+      (!clinicId || d.memberships.some((m) => m.clinicId === clinicId)) &&
+      (!specialty || d.specialties.includes(specialty)),
+  );
+  return (
+    <>
+      <PageHeading
+        eyebrow="Find your care team"
+        title="A doctor who feels right for you."
+        description="Thoughtful care, at a time and place that fits your life."
+      />
+      <div className="filters">
+        <div className="search-field">
+          <Search size={19} />
+          <input
+            aria-label="Search doctors"
+            placeholder="Search by name or specialty…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          aria-label="Filter by specialty"
+          value={specialty}
+          onChange={(e) => setSpecialty(e.target.value)}
+        >
+          <option value="">All specialties</option>
+          {[...new Set(doctors.data.flatMap((d) => d.specialties))].map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+        </select>
+        <select
+          aria-label="Filter by clinic"
+          value={clinicId}
+          onChange={(e) => setClinicId(e.target.value)}
+        >
+          <option value="">All clinics</option>
+          {clinics.data?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="section-row">
+        <p className="small">{filtered.length} doctors to connect with</p>
+        <span className="small">Consultation fees in BDT</span>
+      </div>
+      {filtered.length ? (
+        <div className="doctor-grid">
+          {filtered.map((d) => (
+            <article className="doctor-card" key={d.userId}>
+              <div className="doctor-top">
+                <Avatar name={d.user.fullName} color={d.color} large />
+                <span className="tag">
+                  <ShieldCheck size={14} style={{ marginRight: 5 }} />
+                  {d.licenseNumber}
+                </span>
+              </div>
+              <h3>{d.user.fullName}</h3>
+              <p className="specialty">{d.specialties.join(' · ')}</p>
+              <p className="doctor-bio">{d.bio}</p>
+              <div className="detail-line">
+                <MapPin size={16} />
+                {d.memberships
+                  .map((m) =>
+                    m.clinic.name.replace(' Care Center', '').replace(' Health Studio', ''),
+                  )
+                  .join(' · ')}
+              </div>
+              <div className="detail-line">
+                <Video size={16} />
+                In-person & online · {d.languages.join(', ')}
+              </div>
+              <div className="doctor-fee">
+                <div>
+                  <small>Consultation from</small>
+                  <br />
+                  <strong>{money(Math.min(...d.memberships.map((m) => m.teleFeeMinor)))}</strong>
+                </div>
+                <button className="button primary" onClick={() => setSelected(d)}>
+                  Book a visit <ArrowUpRight size={16} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty title="No matches just yet" body="Try another specialty, clinic, or doctor name." />
+      )}
+      {selected && (
+        <BookingModal
+          doctor={selected}
+          user={user}
+          initialClinic={clinicId}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </>
+  );
 }
-export function BookingModal({doctor,user,onClose,initialClinic='',reschedule}:{doctor:Doctor;user:User;onClose:()=>void;initialClinic?:string;reschedule?:Appointment}){
-  const toast=useToast(),client=useQueryClient();const [clinicId,setClinicId]=useState(initialClinic||doctor.memberships[0]?.clinicId||''),[day,setDay]=useState(localDate(1)),[type,setType]=useState(reschedule?.type||'IN_PERSON'),[startAt,setStartAt]=useState(''),[patientId,setPatientId]=useState(reschedule?.patientId||user.id),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[done,setDone]=useState(false),[now,setNow]=useState(Date.now());
-  const {hold,setHold}=useHold();const key=useRef(crypto.randomUUID());
-  const staff=user.globalRole==='SUPER_ADMIN'||user.roles.some(r=>r.clinicId===clinicId&&['RECEPTIONIST','CLINIC_ADMIN'].includes(r.role));
-  const patients=useQuery({queryKey:['patients',clinicId],queryFn:()=>api<{id:string;fullName:string}[]>(`/patients?clinicId=${clinicId}`),enabled:staff});
-  const slots=useQuery({queryKey:['slots',doctor.userId,clinicId,day,type],queryFn:()=>api<Slot[]>(`/doctors/${doctor.userId}/slots?clinicId=${clinicId}&from=${day}&to=${day}&type=${type}`),enabled:!!clinicId,refetchInterval:30000});
-  useEffect(()=>{setHold(null);const interval=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(interval);},[setHold]);
-  const remaining=hold?Math.max(0,Math.ceil((new Date(hold.expiresAt).getTime()-now)/1000)):0;
-  const clinic=doctor.memberships.find(m=>m.clinicId===clinicId)?.clinic;
-  async function close(){if(hold&&!done)await api(`/appointments/holds/${hold.id}`,{method:'DELETE'}).catch(()=>{});setHold(null);onClose();}
-  async function reserve(){setBusy(true);setError('');try{const h=await post<Hold>('/appointments/holds',{doctorId:doctor.userId,clinicId,startAt,type,...(staff?{patientId}:{})});setHold(h);key.current=crypto.randomUUID();setNow(Date.now());}catch(e){setError((e as Error).message);void slots.refetch();}finally{setBusy(false);}}
-  async function confirm(){if(!hold)return;setBusy(true);setError('');try{await post(reschedule?`/appointments/${reschedule.id}/reschedule`:'/appointments',{holdId:hold.id,...(!reschedule?{reason}:{})},key.current);setDone(true);setHold(null);await client.invalidateQueries({queryKey:['appointments']});void client.invalidateQueries({queryKey:['notifications']});toast(reschedule?'Your visit has been rescheduled.':'Your appointment is confirmed. A little care, on the calendar.');}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
-  async function waitlist(){setBusy(true);try{await post('/waitlist',{doctorId:doctor.userId,clinicId,preferredStart:`${day}T00:00:00+06:00`,preferredEnd:`${day}T23:59:59+06:00`});toast('You’re on the waitlist. We’ll let you know when a slot opens.');onClose();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
-  return <Modal title={done?'You’re all set.':reschedule?'Find a new time':'Make a little time for your health'} onClose={()=>void close()}>{done?<div className="empty"><CheckCircle2 size={54} color="#0d776e"/><h3>See you soon.</h3><p>Your appointment is saved. You can pay, reschedule, or view details from Appointments.</p><button className="button primary" onClick={()=>void close()}>Back to your care</button></div>:<><div className="booking-doctor"><Avatar name={doctor.user.fullName} color={doctor.color} large/><div><h3>{doctor.user.fullName}</h3><p>{doctor.specialties.join(' · ')}</p><small>{doctor.licenseNumber}</small></div></div>{!hold?<><div className="form-grid"><label>Clinic<select value={clinicId} onChange={e=>{setClinicId(e.target.value);setStartAt('');}}>{doctor.memberships.map(m=><option key={m.clinicId} value={m.clinicId}>{m.clinic.name}</option>)}</select></label><label>Consultation<select value={type} onChange={e=>{setType(e.target.value);setStartAt('');}}><option value="IN_PERSON">In person</option><option value="TELEMEDICINE">Telemedicine</option></select></label><label>Date<input type="date" value={day} min={localDate()} max={localDate(30)} onChange={e=>{setDay(e.target.value);setStartAt('');}}/></label>{staff&&<label>Patient<select value={patientId} onChange={e=>setPatientId(e.target.value)} disabled={!!reschedule}><option value={user.id}>Myself</option>{patients.data?.filter(p=>p.id!==user.id).map(p=><option key={p.id} value={p.id}>{p.fullName}</option>)}</select></label>}</div><p className="small" style={{marginTop:20}}>Available times · Asia/Dhaka</p>{slots.isPending?<Loading/>:slots.error?<p className="form-error">{slots.error.message}</p>:slots.data?.length?<div className="slots">{slots.data.map(s=><button key={s.startAt} className={`slot ${startAt===s.startAt?'selected':''}`} disabled={!s.available} onClick={()=>setStartAt(s.startAt)}>{timeLabel(s.startAt)}</button>)}</div>:<div className="info-box" style={{marginTop:10}}>No slots on this date. Try another day or join the waitlist.</div>}{!reschedule&&<label style={{marginTop:20}}>Reason for your visit <span className="small">Optional · shared with your doctor</span><textarea value={reason} onChange={e=>setReason(e.target.value)} maxLength={1000} rows={2}/></label>}<div className="form-actions"><button className="button secondary" disabled={busy} onClick={waitlist}>Join waitlist</button><button className="button primary" disabled={!startAt||busy} onClick={reserve}><CalendarDays size={17}/>{busy?'Reserving…':'Reserve this time'}</button></div></>:<><div className="booking-summary"><div className="detail-line"><span>Clinic</span><strong>{clinic?.name}</strong></div><div className="detail-line"><span>When</span><strong>{dateLabel(hold.startAt)} · {timeLabel(hold.startAt)}</strong></div><div className="detail-line"><span>Consultation</span><strong>{type==='IN_PERSON'?'In person':'Telemedicine'}</strong></div><hr/><div className="detail-line"><span>Consultation fee</span><strong>{money(hold.feeMinor)}</strong></div></div><div className="hold-countdown"><span><Clock3 size={15} style={{verticalAlign:'middle',marginRight:7}}/>{remaining?'Your time is reserved for':'Your hold has expired'}</span><strong>{Math.floor(remaining/60)}:{String(remaining%60).padStart(2,'0')}</strong></div><div className="info-box">Pay after confirming from Payments & invoices. Cancel more than 24 hours before for a full refund; 2–24 hours for 50%; within 2 hours no refund. {reschedule&&'Your previous payment follows the same refund policy; the new visit is billed separately.'}</div><div className="form-actions"><button className="button secondary" disabled={busy} onClick={async()=>{await api(`/appointments/holds/${hold.id}`,{method:'DELETE'}).catch(()=>{});setHold(null);setStartAt('');void slots.refetch();}}>Choose another time</button><button className="button primary" disabled={busy||remaining===0} onClick={confirm}>{busy?'Confirming…':'Confirm appointment'}</button></div></>}{error&&<p className="form-error" role="alert" style={{marginTop:18}}>{error}</p>}</>}</Modal>;
+export function BookingModal({
+  doctor,
+  user,
+  onClose,
+  initialClinic = '',
+  reschedule,
+}: {
+  doctor: Doctor;
+  user: User;
+  onClose: () => void;
+  initialClinic?: string;
+  reschedule?: Appointment;
+}) {
+  const toast = useToast(),
+    client = useQueryClient();
+  const [clinicId, setClinicId] = useState(initialClinic || doctor.memberships[0]?.clinicId || ''),
+    [day, setDay] = useState(localDate(1)),
+    [type, setType] = useState(reschedule?.type || 'IN_PERSON'),
+    [startAt, setStartAt] = useState(''),
+    [patientId, setPatientId] = useState(reschedule?.patientId || user.id),
+    [patientEmail, setPatientEmail] = useState(''),
+    [lookedUpPatient, setLookedUpPatient] = useState<{ id: string; fullName: string } | null>(null),
+    [reason, setReason] = useState(''),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(''),
+    [done, setDone] = useState(false),
+    [now, setNow] = useState(Date.now());
+  const { hold, setHold } = useHold();
+  const key = useRef(crypto.randomUUID());
+  const staff =
+    user.globalRole === 'SUPER_ADMIN' ||
+    user.roles.some(
+      (r) => r.clinicId === clinicId && ['RECEPTIONIST', 'CLINIC_ADMIN'].includes(r.role),
+    );
+  const patients = useQuery({
+    queryKey: ['patients', clinicId],
+    queryFn: () => api<{ id: string; fullName: string }[]>(`/patients?clinicId=${clinicId}`),
+    enabled: staff,
+  });
+  const slots = useQuery({
+    queryKey: ['slots', doctor.userId, clinicId, day, type],
+    queryFn: () =>
+      api<Slot[]>(
+        `/doctors/${doctor.userId}/slots?clinicId=${clinicId}&from=${day}&to=${day}&type=${type}`,
+      ),
+    enabled: !!clinicId,
+    refetchInterval: 30000,
+  });
+  useEffect(() => {
+    setHold(null);
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [setHold]);
+  const remaining = hold
+    ? Math.max(0, Math.ceil((new Date(hold.expiresAt).getTime() - now) / 1000))
+    : 0;
+  const clinic = doctor.memberships.find((m) => m.clinicId === clinicId)?.clinic;
+  async function close() {
+    if (hold && !done)
+      await api(`/appointments/holds/${hold.id}`, { method: 'DELETE' }).catch(() => {});
+    setHold(null);
+    onClose();
+  }
+  async function reserve() {
+    setBusy(true);
+    setError('');
+    try {
+      const h = await post<Hold>('/appointments/holds', {
+        doctorId: doctor.userId,
+        clinicId,
+        startAt,
+        type,
+        ...(staff ? { patientId } : {}),
+      });
+      setHold(h);
+      key.current = crypto.randomUUID();
+      setNow(Date.now());
+    } catch (e) {
+      setError((e as Error).message);
+      void slots.refetch();
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function confirm() {
+    if (!hold) return;
+    setBusy(true);
+    setError('');
+    try {
+      await post(
+        reschedule ? `/appointments/${reschedule.id}/reschedule` : '/appointments',
+        { holdId: hold.id, ...(!reschedule ? { reason } : {}) },
+        key.current,
+      );
+      setDone(true);
+      setHold(null);
+      await client.invalidateQueries({ queryKey: ['appointments'] });
+      void client.invalidateQueries({ queryKey: ['notifications'] });
+      toast(
+        reschedule
+          ? 'Your visit has been rescheduled.'
+          : 'Your appointment is confirmed. A little care, on the calendar.',
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function waitlist() {
+    setBusy(true);
+    try {
+      await post('/waitlist', {
+        doctorId: doctor.userId,
+        clinicId,
+        preferredStart: `${day}T00:00:00+06:00`,
+        preferredEnd: `${day}T23:59:59+06:00`,
+      });
+      toast('You’re on the waitlist. We’ll let you know when a slot opens.');
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal
+      title={
+        done
+          ? 'You’re all set.'
+          : reschedule
+            ? 'Find a new time'
+            : 'Make a little time for your health'
+      }
+      onClose={() => void close()}
+    >
+      {done ? (
+        <div className="empty">
+          <CheckCircle2 size={54} color="#0d776e" />
+          <h3>See you soon.</h3>
+          <p>
+            Your appointment is saved. You can pay, reschedule, or view details from Appointments.
+          </p>
+          <button className="button primary" onClick={() => void close()}>
+            Back to your care
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="booking-doctor">
+            <Avatar name={doctor.user.fullName} color={doctor.color} large />
+            <div>
+              <h3>{doctor.user.fullName}</h3>
+              <p>{doctor.specialties.join(' · ')}</p>
+              <small>{doctor.licenseNumber}</small>
+            </div>
+          </div>
+          {!hold ? (
+            <>
+              <div className="form-grid">
+                <label>
+                  Clinic
+                  <select
+                    value={clinicId}
+                    onChange={(e) => {
+                      setClinicId(e.target.value);
+                      setStartAt('');
+                    }}
+                  >
+                    {doctor.memberships.map((m) => (
+                      <option key={m.clinicId} value={m.clinicId}>
+                        {m.clinic.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Consultation
+                  <select
+                    value={type}
+                    onChange={(e) => {
+                      setType(e.target.value);
+                      setStartAt('');
+                    }}
+                  >
+                    <option value="IN_PERSON">In person</option>
+                    <option value="TELEMEDICINE">Telemedicine</option>
+                  </select>
+                </label>
+                <label>
+                  Date
+                  <input
+                    type="date"
+                    value={day}
+                    min={localDate()}
+                    max={localDate(30)}
+                    onChange={(e) => {
+                      setDay(e.target.value);
+                      setStartAt('');
+                    }}
+                  />
+                </label>
+                {staff && (
+                  <label>
+                    Patient
+                    <select
+                      value={patientId}
+                      onChange={(e) => setPatientId(e.target.value)}
+                      disabled={!!reschedule}
+                    >
+                      <option value={user.id}>Myself</option>
+                      {[
+                        ...(patients.data || []),
+                        ...(lookedUpPatient &&
+                        !patients.data?.some((p) => p.id === lookedUpPatient.id)
+                          ? [lookedUpPatient]
+                          : []),
+                      ]
+                        .filter((p) => p.id !== user.id)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.fullName}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+              {staff && !reschedule && (
+                <div className="form-grid" style={{ marginTop: 16 }}>
+                  <label>
+                    Find a registered patient by email
+                    <input
+                      type="email"
+                      value={patientEmail}
+                      onChange={(e) => setPatientEmail(e.target.value)}
+                      placeholder="patient@example.com"
+                    />
+                  </label>
+                  <button
+                    className="button secondary"
+                    style={{ alignSelf: 'end' }}
+                    disabled={busy || !patientEmail.includes('@')}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError('');
+                      try {
+                        const result = await api<{ id: string; fullName: string }[]>(
+                          `/patients?clinicId=${clinicId}&email=${encodeURIComponent(patientEmail)}`,
+                        );
+                        if (!result[0]) throw new Error('No registered patient matches this email');
+                        setLookedUpPatient(result[0]);
+                        setPatientId(result[0].id);
+                      } catch (e) {
+                        setError((e as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Find patient
+                  </button>
+                </div>
+              )}
+              <p className="small" style={{ marginTop: 20 }}>
+                Available times · Asia/Dhaka
+              </p>
+              {slots.isPending ? (
+                <Loading />
+              ) : slots.error ? (
+                <p className="form-error">{slots.error.message}</p>
+              ) : slots.data?.length ? (
+                <div className="slots">
+                  {slots.data.map((s) => (
+                    <button
+                      key={s.startAt}
+                      className={`slot ${startAt === s.startAt ? 'selected' : ''}`}
+                      disabled={!s.available}
+                      onClick={() => setStartAt(s.startAt)}
+                    >
+                      {timeLabel(s.startAt)}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="info-box" style={{ marginTop: 10 }}>
+                  No slots on this date. Try another day or join the waitlist.
+                </div>
+              )}
+              {!reschedule && (
+                <label style={{ marginTop: 20 }}>
+                  Reason for your visit{' '}
+                  <span className="small">Optional · shared with your doctor</span>
+                  <textarea
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    maxLength={1000}
+                    rows={2}
+                  />
+                </label>
+              )}
+              <div className="form-actions">
+                <button className="button secondary" disabled={busy} onClick={waitlist}>
+                  Join waitlist
+                </button>
+                <button className="button primary" disabled={!startAt || busy} onClick={reserve}>
+                  <CalendarDays size={17} />
+                  {busy ? 'Reserving…' : 'Reserve this time'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="booking-summary">
+                <div className="detail-line">
+                  <span>Clinic</span>
+                  <strong>{clinic?.name}</strong>
+                </div>
+                <div className="detail-line">
+                  <span>When</span>
+                  <strong>
+                    {dateLabel(hold.startAt)} · {timeLabel(hold.startAt)}
+                  </strong>
+                </div>
+                <div className="detail-line">
+                  <span>Consultation</span>
+                  <strong>{type === 'IN_PERSON' ? 'In person' : 'Telemedicine'}</strong>
+                </div>
+                <hr />
+                <div className="detail-line">
+                  <span>Consultation fee</span>
+                  <strong>{money(hold.feeMinor)}</strong>
+                </div>
+              </div>
+              <div className="hold-countdown">
+                <span>
+                  <Clock3 size={15} style={{ verticalAlign: 'middle', marginRight: 7 }} />
+                  {remaining ? 'Your time is reserved for' : 'Your hold has expired'}
+                </span>
+                <strong>
+                  {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}
+                </strong>
+              </div>
+              <div className="info-box">
+                Pay after confirming from Payments & invoices. Cancel more than 24 hours before for
+                a full refund; 2–24 hours for 50%; within 2 hours no refund.{' '}
+                {reschedule &&
+                  'Your previous payment follows the same refund policy; the new visit is billed separately.'}
+              </div>
+              <div className="form-actions">
+                <button
+                  className="button secondary"
+                  disabled={busy}
+                  onClick={async () => {
+                    await api(`/appointments/holds/${hold.id}`, { method: 'DELETE' }).catch(
+                      () => {},
+                    );
+                    setHold(null);
+                    setStartAt('');
+                    void slots.refetch();
+                  }}
+                >
+                  Choose another time
+                </button>
+                <button
+                  className="button primary"
+                  disabled={busy || remaining === 0}
+                  onClick={confirm}
+                >
+                  {busy ? 'Confirming…' : 'Confirm appointment'}
+                </button>
+              </div>
+            </>
+          )}
+          {error && (
+            <p className="form-error" role="alert" style={{ marginTop: 18 }}>
+              {error}
+            </p>
+          )}
+        </>
+      )}
+    </Modal>
+  );
 }

@@ -1,39 +1,1019 @@
 'use client';
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bell, CheckCheck, ShieldCheck, Monitor, LogOut, Plus, Building2, MapPin, CalendarClock, ChartNoAxesCombined, Users, Clock3, Receipt, CalendarDays } from 'lucide-react';
+import {
+  Bell,
+  CheckCheck,
+  ShieldCheck,
+  Monitor,
+  LogOut,
+  Plus,
+  Building2,
+  MapPin,
+  CalendarClock,
+  ChartNoAxesCombined,
+  Users,
+  Clock3,
+  Receipt,
+  CalendarDays,
+} from 'lucide-react';
 import { api, post, dateLabel, money, localDate } from '@/lib/api';
 import type { Clinic, User, Doctor, Notification, Summary } from '@/lib/types';
 import { Badge, Empty, ErrorState, Loading, Modal, PageHeading } from '../ui';
 import { useToast } from '../providers';
 import { AdminPanel } from '../admin-panel';
-export function SettingsView({user}:{user:User}){
-  const toast=useToast(),client=useQueryClient();const [name,setName]=useState(user.fullName),[phone,setPhone]=useState(user.phone||''),[blood,setBlood]=useState(user.bloodGroup||''),[allergies,setAllergies]=useState(user.allergies.join(', ')),[consent,setConsent]=useState(user.consentHistory),[dob,setDob]=useState(user.dateOfBirth?.slice(0,10)||''),[contactName,setContactName]=useState(user.emergencyContact?.name||''),[contactPhone,setContactPhone]=useState(user.emergencyContact?.phone||''),[busy,setBusy]=useState(false);
-  const sessions=useQuery({queryKey:['sessions'],queryFn:()=>api<{id:string;device:string;createdAt:string}[]>('/auth/sessions')});const waitlist=useQuery({queryKey:['waitlist'],queryFn:()=>api<{id:string;status:string;createdAt:string}[]>('/waitlist')});
-  async function save(e:React.FormEvent){e.preventDefault();setBusy(true);try{await api('/auth/me',{method:'PATCH',body:JSON.stringify({fullName:name,phone:phone||null,bloodGroup:blood||null,allergies:allergies.split(',').map(a=>a.trim()).filter(Boolean),consentHistory:consent,dateOfBirth:dob||null,emergencyContact:{name:contactName,phone:contactPhone}})});await client.invalidateQueries({queryKey:['me']});toast('Your profile is up to date.');}catch(e){toast((e as Error).message,true);}finally{setBusy(false);}}
-  return <><PageHeading title="Make yourself at home." description="Your details, your privacy, your preferences."/><div className="setting-grid"><section className="panel setting-section"><h2>Personal & health profile</h2><p className="small" style={{marginBottom:20}}>Your account ID: <code>{user.id}</code></p><form className="form-stack" onSubmit={save}><div className="form-grid"><label>Full name<input value={name} onChange={e=>setName(e.target.value)} required minLength={2} maxLength={100} autoComplete="name"/></label><label>Email<input value={user.email} disabled/></label><label>Phone number<input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+8801XXXXXXXXX" pattern="\+?[0-9]{7,15}" autoComplete="tel"/></label><label>Date of birth<input type="date" value={dob} max={localDate()} onChange={e=>setDob(e.target.value)}/></label><label>Blood group<select value={blood} onChange={e=>setBlood(e.target.value)}><option value="">Not specified</option>{['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(b=><option key={b}>{b}</option>)}</select></label><label>Allergies<input value={allergies} onChange={e=>setAllergies(e.target.value)} placeholder="Separate with commas" maxLength={1000}/></label><label>Emergency contact name<input value={contactName} onChange={e=>setContactName(e.target.value)} maxLength={100}/></label><label>Emergency contact phone<input value={contactPhone} onChange={e=>setContactPhone(e.target.value)} maxLength={30}/></label></div><hr/><h3>Your information, your choice.</h3><div className="info-box">Your treating doctor can see history within their clinic. Turn on cross-clinic sharing to let your treating doctors access your history across clinics. You can withdraw consent at any time.</div><label className="check"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>Allow my treating doctors to access my history across clinics.</span></label><div className="form-actions"><button className="button primary" disabled={busy}>{busy?'Saving…':'Save your details'}</button></div></form></section><div className="stack"><section className="panel setting-section"><h2>Signed-in devices</h2><p className="small">Remove a device to stop it renewing its session. Existing access expires within 15 minutes.</p>{sessions.data?.map(s=><div className="session-item" key={s.id}><Monitor size={21} color="#7a9385"/><div><strong title={s.device}>{s.device}</strong><small>{dateLabel(s.createdAt)}</small></div><button className="icon-button" aria-label="Revoke device session" onClick={async()=>{try{await api(`/auth/sessions/${s.id}`,{method:'DELETE'});void sessions.refetch();toast('Device session removed.');}catch(e){toast((e as Error).message,true);}}}><LogOut size={17}/></button></div>)}</section><section className="panel setting-section"><h2>Your waitlist</h2>{waitlist.data?.length?waitlist.data.map(entry=><div className="session-item" key={entry.id}><CalendarClock size={20}/><div><Badge status={entry.status}/><small>Joined {dateLabel(entry.createdAt)}</small></div><button className="text-link" onClick={async()=>{try{await post(`/waitlist/${entry.id}/leave`);void waitlist.refetch();toast('You’ve left the waitlist.');}catch(e){toast((e as Error).message,true);}}}>Leave</button></div>):<p className="small">No active waitlist entries. Join from a doctor’s booking calendar when your preferred day is full.</p>}</section><aside className="wellness"><ShieldCheck size={26} color="#9b844b"/><h3 style={{marginTop:13}}>Privacy is part of care.</h3><p>Clinical records stay with you and your treating doctor. Clinic staff can manage your booking without access to clinical notes.</p></aside></div></div></>;
+export function SettingsView({ user }: { user: User }) {
+  const toast = useToast(),
+    client = useQueryClient();
+  const [name, setName] = useState(user.fullName),
+    [phone, setPhone] = useState(user.phone || ''),
+    [blood, setBlood] = useState(user.bloodGroup || ''),
+    [allergies, setAllergies] = useState(user.allergies.join(', ')),
+    [consent, setConsent] = useState(user.consentHistory),
+    [dob, setDob] = useState(user.dateOfBirth?.slice(0, 10) || ''),
+    [contactName, setContactName] = useState(user.emergencyContact?.name || ''),
+    [contactPhone, setContactPhone] = useState(user.emergencyContact?.phone || ''),
+    [busy, setBusy] = useState(false);
+  const sessions = useQuery({
+    queryKey: ['sessions'],
+    queryFn: () => api<{ id: string; device: string; createdAt: string }[]>('/auth/sessions'),
+  });
+  const waitlist = useQuery({
+    queryKey: ['waitlist'],
+    queryFn: () => api<{ id: string; status: string; createdAt: string }[]>('/waitlist'),
+  });
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api('/auth/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          fullName: name,
+          phone: phone || null,
+          bloodGroup: blood || null,
+          allergies: allergies
+            .split(',')
+            .map((a) => a.trim())
+            .filter(Boolean),
+          consentHistory: consent,
+          dateOfBirth: dob || null,
+          emergencyContact: { name: contactName, phone: contactPhone },
+        }),
+      });
+      await client.invalidateQueries({ queryKey: ['me'] });
+      toast('Your profile is up to date.');
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <PageHeading
+        title="Make yourself at home."
+        description="Your details, your privacy, your preferences."
+      />
+      <div className="setting-grid">
+        <section className="panel setting-section">
+          <h2>Personal & health profile</h2>
+          <p className="small" style={{ marginBottom: 20 }}>
+            Your account ID: <code>{user.id}</code>
+          </p>
+          <form className="form-stack" onSubmit={save}>
+            <div className="form-grid">
+              <label>
+                Full name
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  minLength={2}
+                  maxLength={100}
+                  autoComplete="name"
+                />
+              </label>
+              <label>
+                Email
+                <input value={user.email} disabled />
+              </label>
+              <label>
+                Phone number
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+8801XXXXXXXXX"
+                  pattern="\+?[0-9]{7,15}"
+                  autoComplete="tel"
+                />
+              </label>
+              <label>
+                Date of birth
+                <input
+                  type="date"
+                  value={dob}
+                  max={localDate()}
+                  onChange={(e) => setDob(e.target.value)}
+                />
+              </label>
+              <label>
+                Blood group
+                <select value={blood} onChange={(e) => setBlood(e.target.value)}>
+                  <option value="">Not specified</option>
+                  {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((b) => (
+                    <option key={b}>{b}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Allergies
+                <input
+                  value={allergies}
+                  onChange={(e) => setAllergies(e.target.value)}
+                  placeholder="Separate with commas"
+                  maxLength={1000}
+                />
+              </label>
+              <label>
+                Emergency contact name
+                <input
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  maxLength={100}
+                />
+              </label>
+              <label>
+                Emergency contact phone
+                <input
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  maxLength={30}
+                />
+              </label>
+            </div>
+            <hr />
+            <h3>Your information, your choice.</h3>
+            <div className="info-box">
+              Your treating doctor can see history within their clinic. Turn on cross-clinic sharing
+              to let your treating doctors access your history across clinics. You can withdraw
+              consent at any time.
+            </div>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+              />
+              <span>Allow my treating doctors to access my history across clinics.</span>
+            </label>
+            <div className="form-actions">
+              <button className="button primary" disabled={busy}>
+                {busy ? 'Saving…' : 'Save your details'}
+              </button>
+            </div>
+          </form>
+        </section>
+        <div className="stack">
+          <section className="panel setting-section">
+            <h2>Signed-in devices</h2>
+            <p className="small">
+              Remove a device to stop it renewing its session. Existing access expires within 15
+              minutes.
+            </p>
+            {sessions.data?.map((s) => (
+              <div className="session-item" key={s.id}>
+                <Monitor size={21} color="#7a9385" />
+                <div>
+                  <strong title={s.device}>{s.device}</strong>
+                  <small>{dateLabel(s.createdAt)}</small>
+                </div>
+                <button
+                  className="icon-button"
+                  aria-label="Revoke device session"
+                  onClick={async () => {
+                    try {
+                      await api(`/auth/sessions/${s.id}`, { method: 'DELETE' });
+                      void sessions.refetch();
+                      toast('Device session removed.');
+                    } catch (e) {
+                      toast((e as Error).message, true);
+                    }
+                  }}
+                >
+                  <LogOut size={17} />
+                </button>
+              </div>
+            ))}
+          </section>
+          <section className="panel setting-section">
+            <h2>Your waitlist</h2>
+            {waitlist.data?.length ? (
+              waitlist.data.map((entry) => (
+                <div className="session-item" key={entry.id}>
+                  <CalendarClock size={20} />
+                  <div>
+                    <Badge status={entry.status} />
+                    <small>Joined {dateLabel(entry.createdAt)}</small>
+                  </div>
+                  <button
+                    className="text-link"
+                    onClick={async () => {
+                      try {
+                        await post(`/waitlist/${entry.id}/leave`);
+                        void waitlist.refetch();
+                        toast('You’ve left the waitlist.');
+                      } catch (e) {
+                        toast((e as Error).message, true);
+                      }
+                    }}
+                  >
+                    Leave
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="small">
+                No active waitlist entries. Join from a doctor’s booking calendar when your
+                preferred day is full.
+              </p>
+            )}
+          </section>
+          <aside className="wellness">
+            <ShieldCheck size={26} color="#9b844b" />
+            <h3 style={{ marginTop: 13 }}>Privacy is part of care.</h3>
+            <p>
+              Clinical records stay with you and your treating doctor. Clinic staff can manage your
+              booking without access to clinical notes.
+            </p>
+          </aside>
+        </div>
+      </div>
+    </>
+  );
 }
-export function Notifications(){
-  const toast=useToast();const query=useQuery({queryKey:['notifications'],queryFn:()=>api<Notification[]>('/notifications'),refetchInterval:30000});
-  return <><PageHeading title="A little update for you." description="Appointment reminders and important moments in your care." action={<button className="button secondary" onClick={async()=>{try{await api('/notifications/read',{method:'PATCH'});void query.refetch();toast('All caught up.');}catch(e){toast((e as Error).message,true);}}}><CheckCheck size={17}/>Mark all as read</button>}/>{query.isPending?<Loading/>:query.error?<ErrorState error={query.error} retry={()=>void query.refetch()}/>:query.data.length?<div className="notifications">{query.data.map(n=><article key={n.id} className={`notification-item ${n.readAt?'':'unread'}`}><span className="stat-icon"><Bell size={19}/></span><div><h3>{n.title}</h3><p>{n.body}</p><small>{dateLabel(n.createdAt,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</small></div></article>)}</div>:<div className="panel"><Empty title="You’re all caught up" body="We’ll keep you posted on your appointments and care."/></div>}</>;
+export function Notifications() {
+  const toast = useToast();
+  const query = useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => api<Notification[]>('/notifications'),
+    refetchInterval: 30000,
+  });
+  return (
+    <>
+      <PageHeading
+        title="A little update for you."
+        description="Appointment reminders and important moments in your care."
+        action={
+          <button
+            className="button secondary"
+            onClick={async () => {
+              try {
+                await api('/notifications/read', { method: 'PATCH' });
+                void query.refetch();
+                toast('All caught up.');
+              } catch (e) {
+                toast((e as Error).message, true);
+              }
+            }}
+          >
+            <CheckCheck size={17} />
+            Mark all as read
+          </button>
+        }
+      />
+      {query.isPending ? (
+        <Loading />
+      ) : query.error ? (
+        <ErrorState error={query.error} retry={() => void query.refetch()} />
+      ) : query.data.length ? (
+        <div className="notifications">
+          {query.data.map((n) => (
+            <article key={n.id} className={`notification-item ${n.readAt ? '' : 'unread'}`}>
+              <span className="stat-icon">
+                <Bell size={19} />
+              </span>
+              <div>
+                <h3>{n.title}</h3>
+                <p>{n.body}</p>
+                <small>
+                  {dateLabel(n.createdAt, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </small>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="panel">
+          <Empty
+            title="You’re all caught up"
+            body="We’ll keep you posted on your appointments and care."
+          />
+        </div>
+      )}
+    </>
+  );
 }
-type Rule={id:string;doctorId:string;doctor:{user:{fullName:string}};rrule:string;startTimeLocal:string;endTimeLocal:string;consultationType:string;slotDurationMinutes:number;feeMinor:number};
-type Exception={id:string;doctorId:string;dateLocal:string;type:string;reason:string|null};
-export function Schedules({user,clinicId}:{user:User;clinicId:string}){
-  const toast=useToast(),client=useQueryClient();const [modal,setModal]=useState<'rule'|'exception'|null>(null),[busy,setBusy]=useState(false),[doctorId,setDoctorId]=useState(''),[days,setDays]=useState(['MO','TU','WE','TH']),[start,setStart]=useState('09:00'),[end,setEnd]=useState('13:00'),[duration,setDuration]=useState(30),[buffer,setBuffer]=useState(0),[fee,setFee]=useState(1200),[type,setType]=useState('IN_PERSON'),[date,setDate]=useState(localDate(1)),[exceptionType,setExceptionType]=useState('DAY_OFF'),[reason,setReason]=useState('');
-  const query=useQuery({queryKey:['schedules',clinicId],queryFn:()=>api<{rules:Rule[];exceptions:Exception[]}>(`/schedules?clinicId=${clinicId}`),enabled:!!clinicId});const doctors=useQuery({queryKey:['doctors',clinicId],queryFn:()=>api<Doctor[]>(`/doctors?clinicId=${clinicId}`),enabled:!!clinicId});const admin=user.globalRole==='SUPER_ADMIN'||user.roles.some(r=>r.clinicId===clinicId&&r.role==='CLINIC_ADMIN');const availableDoctors=doctors.data?.filter(d=>admin||d.userId===user.id)||[];const selectedDoctor=doctorId||availableDoctors[0]?.userId||'';
-  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);try{if(modal==='rule'){await post('/schedules/rules',{doctorId:selectedDoctor,clinicId,rrule:`FREQ=WEEKLY;BYDAY=${days.join(',')}`,startTimeLocal:start,endTimeLocal:end,slotDurationMinutes:duration,bufferMinutes:buffer,effectiveFrom:`${date}T00:00:00+06:00`,consultationType:type,feeMinor:Math.round(fee*100)});toast('Recurring schedule created.');}else{const r=await post<{message:string}>('/schedules/exceptions',{doctorId:selectedDoctor,clinicId,dateLocal:date,type:exceptionType,...(exceptionType==='DAY_OFF'?{}:{startTimeLocal:start,endTimeLocal:end}),reason});toast(r.message);}await client.invalidateQueries({queryKey:['schedules']});void client.invalidateQueries({queryKey:['slots']});setModal(null);}catch(e){toast((e as Error).message,true);}finally{setBusy(false);}}
-  return <><PageHeading title="Make room for good care." description="Recurring hours, time off, and the little details in between." action={<div className="row-actions"><button className="button secondary" onClick={()=>setModal('exception')}>Add exception</button><button className="button primary" onClick={()=>setModal('rule')}><Plus size={17}/>Add schedule</button></div>}/><div className="info-box" style={{marginBottom:24}}>Existing appointments are kept when schedules change. Exceptions report affected bookings for review. Capacity is one patient per doctor, across all clinics.</div>{query.isPending?<Loading/>:query.error?<ErrorState error={query.error} retry={()=>void query.refetch()}/>:<><section className="panel"><div className="panel-head"><h2>Recurring availability</h2></div><div className="table-wrap"><table><thead><tr><th>Doctor</th><th>Days</th><th>Hours</th><th>Visit</th><th>Duration</th><th>Fee</th></tr></thead><tbody>{query.data.rules.map(r=><tr key={r.id}><td><strong>{r.doctor.user.fullName}</strong></td><td>{r.rrule.replace('FREQ=WEEKLY;BYDAY=','').replaceAll(',',' · ')}</td><td>{r.startTimeLocal}–{r.endTimeLocal}</td><td><Badge status={r.consultationType}/></td><td>{r.slotDurationMinutes} min</td><td>{money(r.feeMinor)}</td></tr>)}</tbody></table></div></section><section className="panel" style={{marginTop:24}}><div className="panel-head"><h2>Schedule exceptions</h2></div>{query.data.exceptions.length?<div className="table-wrap"><table><thead><tr><th>Date</th><th>Doctor</th><th>Exception</th><th>Reason</th></tr></thead><tbody>{query.data.exceptions.map(e=><tr key={e.id}><td>{e.dateLocal.slice(0,10)}</td><td>{doctors.data?.find(d=>d.userId===e.doctorId)?.user.fullName}</td><td><Badge status={e.type}/></td><td>{e.reason||'—'}</td></tr>)}</tbody></table></div>:<Empty title="A clear calendar" body="Time off and custom hours will appear here."/>}</section></>}{modal&&<Modal title={modal==='rule'?'Add recurring availability':'Add schedule exception'} onClose={()=>setModal(null)}><form className="form-stack" onSubmit={submit}><label>Doctor<select value={selectedDoctor} onChange={e=>setDoctorId(e.target.value)} required>{availableDoctors.map(d=><option key={d.userId} value={d.userId}>{d.user.fullName}</option>)}</select></label><label>{modal==='rule'?'Effective from':'Date'}<input type="date" value={date} onChange={e=>setDate(e.target.value)} required/></label>{modal==='rule'?<><label>Repeat weekly on</label><div className="row-actions">{['MO','TU','WE','TH','FR','SA','SU'].map(d=><button type="button" key={d} className={`filter-chip ${days.includes(d)?'active':''}`} aria-pressed={days.includes(d)} onClick={()=>setDays(days.includes(d)?days.filter(v=>v!==d):[...days,d])}>{d}</button>)}</div><div className="form-grid"><label>Consultation<select value={type} onChange={e=>setType(e.target.value)}><option value="IN_PERSON">In person</option><option value="TELEMEDICINE">Telemedicine</option></select></label><label>Fee (BDT)<input type="number" value={fee} min={0} max={1000000} onChange={e=>setFee(Number(e.target.value))} required/></label><label>Slot length (minutes)<input type="number" value={duration} min={5} max={180} onChange={e=>setDuration(Number(e.target.value))} required/></label><label>Buffer (minutes)<input type="number" value={buffer} min={0} max={60} onChange={e=>setBuffer(Number(e.target.value))} required/></label></div></>:<label>Exception type<select value={exceptionType} onChange={e=>setExceptionType(e.target.value)}><option value="DAY_OFF">Day off</option><option value="CUSTOM_HOURS">Custom hours</option><option value="BLOCK">Block a window</option></select></label>}{(modal==='rule'||exceptionType!=='DAY_OFF')&&<div className="form-grid"><label>Start time<input type="time" value={start} onChange={e=>setStart(e.target.value)} required/></label><label>End time<input type="time" value={end} onChange={e=>setEnd(e.target.value)} required/></label></div>}{modal==='exception'&&<label>Reason<input value={reason} onChange={e=>setReason(e.target.value)} maxLength={200}/></label>}<div className="form-actions"><button className="button primary" disabled={busy||!selectedDoctor||(modal==='rule'&&!days.length)}>{busy?'Saving…':'Save schedule'}</button></div></form></Modal>}</>;
+type Rule = {
+  id: string;
+  doctorId: string;
+  doctor: { user: { fullName: string } };
+  rrule: string;
+  startTimeLocal: string;
+  endTimeLocal: string;
+  consultationType: string;
+  slotDurationMinutes: number;
+  feeMinor: number;
+};
+type Exception = {
+  id: string;
+  doctorId: string;
+  dateLocal: string;
+  type: string;
+  reason: string | null;
+};
+export function Schedules({ user, clinicId }: { user: User; clinicId: string }) {
+  const toast = useToast(),
+    client = useQueryClient();
+  const [modal, setModal] = useState<'rule' | 'exception' | null>(null),
+    [busy, setBusy] = useState(false),
+    [doctorId, setDoctorId] = useState(''),
+    [days, setDays] = useState(['MO', 'TU', 'WE', 'TH']),
+    [start, setStart] = useState('09:00'),
+    [end, setEnd] = useState('13:00'),
+    [duration, setDuration] = useState(30),
+    [buffer, setBuffer] = useState(0),
+    [fee, setFee] = useState(1200),
+    [type, setType] = useState('IN_PERSON'),
+    [date, setDate] = useState(localDate(1)),
+    [exceptionType, setExceptionType] = useState('DAY_OFF'),
+    [reason, setReason] = useState('');
+  const query = useQuery({
+    queryKey: ['schedules', clinicId],
+    queryFn: () =>
+      api<{ rules: Rule[]; exceptions: Exception[] }>(`/schedules?clinicId=${clinicId}`),
+    enabled: !!clinicId,
+  });
+  const doctors = useQuery({
+    queryKey: ['doctors', clinicId],
+    queryFn: () => api<Doctor[]>(`/doctors?clinicId=${clinicId}`),
+    enabled: !!clinicId,
+  });
+  const admin =
+    user.globalRole === 'SUPER_ADMIN' ||
+    user.roles.some((r) => r.clinicId === clinicId && r.role === 'CLINIC_ADMIN');
+  const availableDoctors = doctors.data?.filter((d) => admin || d.userId === user.id) || [];
+  const selectedDoctor = doctorId || availableDoctors[0]?.userId || '';
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      if (modal === 'rule') {
+        await post('/schedules/rules', {
+          doctorId: selectedDoctor,
+          clinicId,
+          rrule: `FREQ=WEEKLY;BYDAY=${days.join(',')}`,
+          startTimeLocal: start,
+          endTimeLocal: end,
+          slotDurationMinutes: duration,
+          bufferMinutes: buffer,
+          effectiveFrom: `${date}T00:00:00+06:00`,
+          consultationType: type,
+          feeMinor: Math.round(fee * 100),
+        });
+        toast('Recurring schedule created.');
+      } else {
+        const r = await post<{ message: string }>('/schedules/exceptions', {
+          doctorId: selectedDoctor,
+          clinicId,
+          dateLocal: date,
+          type: exceptionType,
+          ...(exceptionType === 'DAY_OFF' ? {} : { startTimeLocal: start, endTimeLocal: end }),
+          reason,
+        });
+        toast(r.message);
+      }
+      await client.invalidateQueries({ queryKey: ['schedules'] });
+      void client.invalidateQueries({ queryKey: ['slots'] });
+      setModal(null);
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <PageHeading
+        title="Make room for good care."
+        description="Recurring hours, time off, and the little details in between."
+        action={
+          <div className="row-actions">
+            <button className="button secondary" onClick={() => setModal('exception')}>
+              Add exception
+            </button>
+            <button className="button primary" onClick={() => setModal('rule')}>
+              <Plus size={17} />
+              Add schedule
+            </button>
+          </div>
+        }
+      />
+      <div className="info-box" style={{ marginBottom: 24 }}>
+        Existing appointments are kept when schedules change. Exceptions report affected bookings
+        for review. Capacity is one patient per doctor, across all clinics.
+      </div>
+      {query.isPending ? (
+        <Loading />
+      ) : query.error ? (
+        <ErrorState error={query.error} retry={() => void query.refetch()} />
+      ) : (
+        <>
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Recurring availability</h2>
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Doctor</th>
+                    <th>Days</th>
+                    <th>Hours</th>
+                    <th>Visit</th>
+                    <th>Duration</th>
+                    <th>Fee</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {query.data.rules.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        <strong>{r.doctor.user.fullName}</strong>
+                      </td>
+                      <td>{r.rrule.replace('FREQ=WEEKLY;BYDAY=', '').replaceAll(',', ' · ')}</td>
+                      <td>
+                        {r.startTimeLocal}–{r.endTimeLocal}
+                      </td>
+                      <td>
+                        <Badge status={r.consultationType} />
+                      </td>
+                      <td>{r.slotDurationMinutes} min</td>
+                      <td>{money(r.feeMinor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section className="panel" style={{ marginTop: 24 }}>
+            <div className="panel-head">
+              <h2>Schedule exceptions</h2>
+            </div>
+            {query.data.exceptions.length ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Doctor</th>
+                      <th>Exception</th>
+                      <th>Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {query.data.exceptions.map((e) => (
+                      <tr key={e.id}>
+                        <td>{e.dateLocal.slice(0, 10)}</td>
+                        <td>{doctors.data?.find((d) => d.userId === e.doctorId)?.user.fullName}</td>
+                        <td>
+                          <Badge status={e.type} />
+                        </td>
+                        <td>{e.reason || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty title="A clear calendar" body="Time off and custom hours will appear here." />
+            )}
+          </section>
+        </>
+      )}
+      {modal && (
+        <Modal
+          title={modal === 'rule' ? 'Add recurring availability' : 'Add schedule exception'}
+          onClose={() => setModal(null)}
+        >
+          <form className="form-stack" onSubmit={submit}>
+            <label>
+              Doctor
+              <select value={selectedDoctor} onChange={(e) => setDoctorId(e.target.value)} required>
+                {availableDoctors.map((d) => (
+                  <option key={d.userId} value={d.userId}>
+                    {d.user.fullName}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {modal === 'rule' ? 'Effective from' : 'Date'}
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            </label>
+            {modal === 'rule' ? (
+              <>
+                <label>Repeat weekly on</label>
+                <div className="row-actions">
+                  {['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].map((d) => (
+                    <button
+                      type="button"
+                      key={d}
+                      className={`filter-chip ${days.includes(d) ? 'active' : ''}`}
+                      aria-pressed={days.includes(d)}
+                      onClick={() =>
+                        setDays(days.includes(d) ? days.filter((v) => v !== d) : [...days, d])
+                      }
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+                <div className="form-grid">
+                  <label>
+                    Consultation
+                    <select value={type} onChange={(e) => setType(e.target.value)}>
+                      <option value="IN_PERSON">In person</option>
+                      <option value="TELEMEDICINE">Telemedicine</option>
+                    </select>
+                  </label>
+                  <label>
+                    Fee (BDT)
+                    <input
+                      type="number"
+                      value={fee}
+                      min={0}
+                      max={1000000}
+                      onChange={(e) => setFee(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Slot length (minutes)
+                    <input
+                      type="number"
+                      value={duration}
+                      min={5}
+                      max={180}
+                      onChange={(e) => setDuration(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Buffer (minutes)
+                    <input
+                      type="number"
+                      value={buffer}
+                      min={0}
+                      max={60}
+                      onChange={(e) => setBuffer(Number(e.target.value))}
+                      required
+                    />
+                  </label>
+                </div>
+              </>
+            ) : (
+              <label>
+                Exception type
+                <select value={exceptionType} onChange={(e) => setExceptionType(e.target.value)}>
+                  <option value="DAY_OFF">Day off</option>
+                  <option value="CUSTOM_HOURS">Custom hours</option>
+                  <option value="BLOCK">Block a window</option>
+                </select>
+              </label>
+            )}
+            {(modal === 'rule' || exceptionType !== 'DAY_OFF') && (
+              <div className="form-grid">
+                <label>
+                  Start time
+                  <input
+                    type="time"
+                    value={start}
+                    onChange={(e) => setStart(e.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  End time
+                  <input
+                    type="time"
+                    value={end}
+                    onChange={(e) => setEnd(e.target.value)}
+                    required
+                  />
+                </label>
+              </div>
+            )}
+            {modal === 'exception' && (
+              <label>
+                Reason
+                <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} />
+              </label>
+            )}
+            <div className="form-actions">
+              <button
+                className="button primary"
+                disabled={busy || !selectedDoctor || (modal === 'rule' && !days.length)}
+              >
+                {busy ? 'Saving…' : 'Save schedule'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
 }
-export function Clinics({user,clinics}:{user:User;clinics:Clinic[]}){
-  const toast=useToast(),client=useQueryClient();const [modal,setModal]=useState<'clinic'|'room'|'member'|'doctor'|null>(null),[selected,setSelected]=useState<Clinic|null>(null),[busy,setBusy]=useState(false),[name,setName]=useState(''),[address,setAddress]=useState(''),[slug,setSlug]=useState(''),[email,setEmail]=useState(''),[role,setRole]=useState('RECEPTIONIST'),[userId,setUserId]=useState(''),[specialty,setSpecialty]=useState(''),[license,setLicense]=useState(''),[fee,setFee]=useState(1200),[teleFee,setTeleFee]=useState(1000),[bio,setBio]=useState('');
-  const [auditClinic,setAuditClinic]=useState('');const audit=useQuery({queryKey:['audit',auditClinic],queryFn:()=>api<{id:string;action:string;entity:string;createdAt:string}[]>(`/audit?clinicId=${auditClinic}`),enabled:!!auditClinic});
-  const allowed=clinics.filter(c=>user.globalRole==='SUPER_ADMIN'||user.roles.some(r=>r.clinicId===c.id&&r.role==='CLINIC_ADMIN'));
-  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);try{if(modal==='clinic')await post('/clinics',{name,address,slug,timezone:'Asia/Dhaka'});if(modal==='room')await post(`/clinics/${selected!.id}/rooms`,{name});if(modal==='member')await post(`/clinics/${selected!.id}/members`,{email,role});if(modal==='doctor')await post('/doctors',{userId,clinicId:selected!.id,specialties:specialty.split(',').map(v=>v.trim()),licenseNumber:license,bio,languages:['Bangla','English'],feeMinor:fee*100,teleFeeMinor:teleFee*100});await client.invalidateQueries({queryKey:['clinics']});void client.invalidateQueries({queryKey:['doctors']});toast('Clinic updated.');setModal(null);setName('');}catch(e){toast((e as Error).message,true);}finally{setBusy(false);}}
-  return <><PageHeading title="Connected clinics. Thoughtful care." description="Manage your spaces, your doctors, and the team behind every visit." action={user.globalRole==='SUPER_ADMIN'?<button className="button primary" onClick={()=>setModal('clinic')}><Plus size={17}/>Add clinic</button>:undefined}/><div className="clinic-list">{allowed.map(c=><article className="panel clinic-card" key={c.id}><span className="stat-icon"><Building2 size={22}/></span><h3>{c.name}</h3><p><MapPin size={15} style={{verticalAlign:'middle',marginRight:6}}/>{c.address}</p><p>{c.timezone} · {c._count?.doctors||0} doctors</p><p style={{marginTop:12}}>Rooms: {c.rooms.map(r=>r.name).join(', ')||'No rooms yet'}</p><div className="row-actions" style={{marginTop:20}}>{[['room','Add room'],['member','Add staff'],['doctor','Assign doctor']].map(([key,label])=><button key={key} className="button secondary small" onClick={()=>{setSelected(c);setModal(key as typeof modal);}}>{label}</button>)}<button className="button secondary small" onClick={()=>setAuditClinic(c.id)}>View audit trail</button></div></article>)}</div>{user.globalRole==='SUPER_ADMIN'&&<AdminPanel currentUserId={user.id}/ >}{auditClinic&&<section className="panel" style={{marginTop:24}}><div className="panel-head"><h2>Clinic audit trail</h2><button className="text-link" onClick={()=>setAuditClinic('')}>Close</button></div>{audit.isPending?<Loading/>:audit.error?<p className="form-error">{audit.error.message}</p>:<div className="table-wrap"><table><thead><tr><th>Action</th><th>Entity</th><th>Time</th></tr></thead><tbody>{audit.data?.map(a=><tr key={a.id}><td>{a.action.replaceAll('_',' ')}</td><td>{a.entity}</td><td>{dateLabel(a.createdAt,{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'})}</td></tr>)}</tbody></table></div>}</section>}{modal&&<Modal title={modal==='clinic'?'Add a clinic':modal==='room'?'Add consultation room':modal==='member'?'Add clinic team member':'Assign a doctor'} onClose={()=>setModal(null)}><form className="form-stack" onSubmit={submit}>{(modal==='clinic'||modal==='room')&&<label>Name<input value={name} onChange={e=>setName(e.target.value)} required maxLength={100}/></label>}{modal==='clinic'&&<><label>URL slug<input value={slug} onChange={e=>setSlug(e.target.value)} pattern="[a-z0-9-]+" required maxLength={100}/></label><label>Address<input value={address} onChange={e=>setAddress(e.target.value)} required maxLength={300}/></label></>}{modal==='member'&&<><p className="info-box">The team member must have an existing registered account.</p><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required/></label><label>Role<select value={role} onChange={e=>setRole(e.target.value)}>{['RECEPTIONIST','DOCTOR','CLINIC_ADMIN','NURSE'].map(r=><option key={r}>{r}</option>)}</select></label></>}{modal==='doctor'&&<><p className="info-box">Use the registered doctor’s user ID from their profile. Existing profiles retain their license and specialties.</p><label>User ID<input value={userId} onChange={e=>setUserId(e.target.value)} required/></label><label>Specialties (comma separated)<input value={specialty} onChange={e=>setSpecialty(e.target.value)} required/></label><label>BMDC license number<input value={license} onChange={e=>setLicense(e.target.value)} required/></label><label>Biography<textarea value={bio} onChange={e=>setBio(e.target.value)} maxLength={2000}/></label><div className="form-grid"><label>In-person fee (BDT)<input type="number" min={0} value={fee} onChange={e=>setFee(Number(e.target.value))}/></label><label>Telemedicine fee (BDT)<input type="number" min={0} value={teleFee} onChange={e=>setTeleFee(Number(e.target.value))}/></label></div></>}<div className="form-actions"><button className="button primary" disabled={busy}>{busy?'Saving…':'Save changes'}</button></div></form></Modal>}</>;
+export function Clinics({ user, clinics }: { user: User; clinics: Clinic[] }) {
+  const toast = useToast(),
+    client = useQueryClient();
+  const [modal, setModal] = useState<'clinic' | 'room' | 'member' | 'doctor' | null>(null),
+    [selected, setSelected] = useState<Clinic | null>(null),
+    [busy, setBusy] = useState(false),
+    [name, setName] = useState(''),
+    [address, setAddress] = useState(''),
+    [slug, setSlug] = useState(''),
+    [email, setEmail] = useState(''),
+    [role, setRole] = useState('RECEPTIONIST'),
+    [userId, setUserId] = useState(''),
+    [specialty, setSpecialty] = useState(''),
+    [license, setLicense] = useState(''),
+    [fee, setFee] = useState(1200),
+    [teleFee, setTeleFee] = useState(1000),
+    [bio, setBio] = useState('');
+  const [auditClinic, setAuditClinic] = useState('');
+  const audit = useQuery({
+    queryKey: ['audit', auditClinic],
+    queryFn: () =>
+      api<{ id: string; action: string; entity: string; createdAt: string }[]>(
+        `/audit?clinicId=${auditClinic}`,
+      ),
+    enabled: !!auditClinic,
+  });
+  const allowed = clinics.filter(
+    (c) =>
+      user.globalRole === 'SUPER_ADMIN' ||
+      user.roles.some((r) => r.clinicId === c.id && r.role === 'CLINIC_ADMIN'),
+  );
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      if (modal === 'clinic')
+        await post('/clinics', { name, address, slug, timezone: 'Asia/Dhaka' });
+      if (modal === 'room') await post(`/clinics/${selected!.id}/rooms`, { name });
+      if (modal === 'member') await post(`/clinics/${selected!.id}/members`, { email, role });
+      if (modal === 'doctor')
+        await post('/doctors', {
+          userId,
+          clinicId: selected!.id,
+          specialties: specialty.split(',').map((v) => v.trim()),
+          licenseNumber: license,
+          bio,
+          languages: ['Bangla', 'English'],
+          feeMinor: fee * 100,
+          teleFeeMinor: teleFee * 100,
+        });
+      await client.invalidateQueries({ queryKey: ['clinics'] });
+      void client.invalidateQueries({ queryKey: ['doctors'] });
+      toast('Clinic updated.');
+      setModal(null);
+      setName('');
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <PageHeading
+        title="Connected clinics. Thoughtful care."
+        description="Manage your spaces, your doctors, and the team behind every visit."
+        action={
+          user.globalRole === 'SUPER_ADMIN' ? (
+            <button className="button primary" onClick={() => setModal('clinic')}>
+              <Plus size={17} />
+              Add clinic
+            </button>
+          ) : undefined
+        }
+      />
+      <div className="clinic-list">
+        {allowed.map((c) => (
+          <article className="panel clinic-card" key={c.id}>
+            <span className="stat-icon">
+              <Building2 size={22} />
+            </span>
+            <h3>{c.name}</h3>
+            <p>
+              <MapPin size={15} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+              {c.address}
+            </p>
+            <p>
+              {c.timezone} · {c._count?.doctors || 0} doctors
+            </p>
+            <p style={{ marginTop: 12 }}>
+              Rooms: {c.rooms.map((r) => r.name).join(', ') || 'No rooms yet'}
+            </p>
+            <div className="row-actions" style={{ marginTop: 20 }}>
+              {[
+                ['room', 'Add room'],
+                ['member', 'Add staff'],
+                ['doctor', 'Assign doctor'],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  className="button secondary small"
+                  onClick={() => {
+                    setSelected(c);
+                    setModal(key as typeof modal);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              <button className="button secondary small" onClick={() => setAuditClinic(c.id)}>
+                View audit trail
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+      {user.globalRole === 'SUPER_ADMIN' && <AdminPanel currentUserId={user.id} />}
+      {auditClinic && (
+        <section className="panel" style={{ marginTop: 24 }}>
+          <div className="panel-head">
+            <h2>Clinic audit trail</h2>
+            <button className="text-link" onClick={() => setAuditClinic('')}>
+              Close
+            </button>
+          </div>
+          {audit.isPending ? (
+            <Loading />
+          ) : audit.error ? (
+            <p className="form-error">{audit.error.message}</p>
+          ) : (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Action</th>
+                    <th>Entity</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {audit.data?.map((a) => (
+                    <tr key={a.id}>
+                      <td>{a.action.replaceAll('_', ' ')}</td>
+                      <td>{a.entity}</td>
+                      <td>
+                        {dateLabel(a.createdAt, {
+                          day: 'numeric',
+                          month: 'short',
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+      {modal && (
+        <Modal
+          title={
+            modal === 'clinic'
+              ? 'Add a clinic'
+              : modal === 'room'
+                ? 'Add consultation room'
+                : modal === 'member'
+                  ? 'Add clinic team member'
+                  : 'Assign a doctor'
+          }
+          onClose={() => setModal(null)}
+        >
+          <form className="form-stack" onSubmit={submit}>
+            {(modal === 'clinic' || modal === 'room') && (
+              <label>
+                Name
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  maxLength={100}
+                />
+              </label>
+            )}
+            {modal === 'clinic' && (
+              <>
+                <label>
+                  URL slug
+                  <input
+                    value={slug}
+                    onChange={(e) => setSlug(e.target.value)}
+                    pattern="[a-z0-9-]+"
+                    required
+                    maxLength={100}
+                  />
+                </label>
+                <label>
+                  Address
+                  <input
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    required
+                    maxLength={300}
+                  />
+                </label>
+              </>
+            )}
+            {modal === 'member' && (
+              <>
+                <p className="info-box">
+                  The team member must have an existing registered account.
+                </p>
+                <label>
+                  Email
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  Role
+                  <select value={role} onChange={(e) => setRole(e.target.value)}>
+                    {['RECEPTIONIST', 'DOCTOR', 'CLINIC_ADMIN', 'NURSE'].map((r) => (
+                      <option key={r}>{r}</option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            )}
+            {modal === 'doctor' && (
+              <>
+                <p className="info-box">
+                  Use the registered doctor’s user ID from their profile. Existing profiles retain
+                  their license and specialties.
+                </p>
+                <label>
+                  User ID
+                  <input value={userId} onChange={(e) => setUserId(e.target.value)} required />
+                </label>
+                <label>
+                  Specialties (comma separated)
+                  <input
+                    value={specialty}
+                    onChange={(e) => setSpecialty(e.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  BMDC license number
+                  <input value={license} onChange={(e) => setLicense(e.target.value)} required />
+                </label>
+                <label>
+                  Biography
+                  <textarea value={bio} onChange={(e) => setBio(e.target.value)} maxLength={2000} />
+                </label>
+                <div className="form-grid">
+                  <label>
+                    In-person fee (BDT)
+                    <input
+                      type="number"
+                      min={0}
+                      value={fee}
+                      onChange={(e) => setFee(Number(e.target.value))}
+                    />
+                  </label>
+                  <label>
+                    Telemedicine fee (BDT)
+                    <input
+                      type="number"
+                      min={0}
+                      value={teleFee}
+                      onChange={(e) => setTeleFee(Number(e.target.value))}
+                    />
+                  </label>
+                </div>
+              </>
+            )}
+            <div className="form-actions">
+              <button className="button primary" disabled={busy}>
+                {busy ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
+  );
 }
-export function Analytics({clinicId}:{clinicId:string}){
-  const query=useQuery({queryKey:['analytics',clinicId],queryFn:()=>api<Summary>(`/analytics/clinic/${clinicId}/summary`),enabled:!!clinicId});
-  if(query.isPending)return <Loading/>;if(query.error)return <ErrorState error={query.error} retry={()=>void query.refetch()}/>;const s=query.data,max=Math.max(1,...s.byDay.map(d=>d.count));
-  return <><PageHeading eyebrow="Your clinic at a glance" title="Room to care. Space to grow." description="A clear view of clinic activity, with no patient details in sight."/><div className="stats">{[[Users,'Appointments',String(s.total)],[Receipt,'Net revenue',money(s.revenueMinor)],[Clock3,'Average late check-in',`${s.averageWaitMinutes.toFixed(0)} min`],[ChartNoAxesCombined,'No-show rate',`${s.noShowRate.toFixed(1)}%`]].map(([Icon,label,value])=>{const Component=Icon as typeof Users;return <div className="stat" key={String(label)}><div className="stat-top">{String(label)}<span className="stat-icon"><Component size={18}/></span></div><div className="stat-value">{String(value)}</div><p className="small">All recorded appointments</p></div>;})}</div><div className="dashboard-grid"><section className="panel padded"><h2>Appointments this week</h2><p className="small" style={{marginTop:7}}>Last 7 days · Asia/Dhaka</p><div className="bar-chart" role="img" aria-label={s.byDay.map(d=>`${d.date}: ${d.count} appointments`).join('; ')}>{s.byDay.map(d=><div className="bar-group" key={d.date}><span>{d.count}</span><div className="bar" style={{height:`${d.count/max*155}px`}}/><span>{dateLabel(`${d.date}T12:00:00+06:00`,{weekday:'short'})}</span></div>)}</div></section><section className="panel padded"><h2>Care outcomes</h2><div style={{marginTop:25}}>{[['Completed',s.completed],['No-show',s.noShow],['Completion rate',`${s.completionRate.toFixed(1)}%`]].map(([label,value])=><div className="session-item" key={label}><span className="stat-icon"><CalendarDays size={18}/></span><div><strong>{label}</strong></div><h2>{value}</h2></div>)}</div><p className="small" style={{marginTop:20}}>Revenue includes captured payments minus pending or completed refunds. Late check-in measures arrival after the scheduled start; it does not measure queue waiting time.</p></section></div></>;
+export function Analytics({ clinicId }: { clinicId: string }) {
+  const query = useQuery({
+    queryKey: ['analytics', clinicId],
+    queryFn: () => api<Summary>(`/analytics/clinic/${clinicId}/summary`),
+    enabled: !!clinicId,
+  });
+  if (query.isPending) return <Loading />;
+  if (query.error) return <ErrorState error={query.error} retry={() => void query.refetch()} />;
+  const s = query.data,
+    max = Math.max(1, ...s.byDay.map((d) => d.count));
+  return (
+    <>
+      <PageHeading
+        eyebrow="Your clinic at a glance"
+        title="Room to care. Space to grow."
+        description="A clear view of clinic activity, with no patient details in sight."
+      />
+      <div className="stats">
+        {[
+          [Users, 'Appointments', String(s.total)],
+          [Receipt, 'Net revenue', money(s.revenueMinor)],
+          [Clock3, 'Average late check-in', `${s.averageWaitMinutes.toFixed(0)} min`],
+          [ChartNoAxesCombined, 'No-show rate', `${s.noShowRate.toFixed(1)}%`],
+        ].map(([Icon, label, value]) => {
+          const Component = Icon as typeof Users;
+          return (
+            <div className="stat" key={String(label)}>
+              <div className="stat-top">
+                {String(label)}
+                <span className="stat-icon">
+                  <Component size={18} />
+                </span>
+              </div>
+              <div className="stat-value">{String(value)}</div>
+              <p className="small">All recorded appointments</p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="dashboard-grid">
+        <section className="panel padded">
+          <h2>Appointments this week</h2>
+          <p className="small" style={{ marginTop: 7 }}>
+            Last 7 days · Asia/Dhaka
+          </p>
+          <div
+            className="bar-chart"
+            role="img"
+            aria-label={s.byDay.map((d) => `${d.date}: ${d.count} appointments`).join('; ')}
+          >
+            {s.byDay.map((d) => (
+              <div className="bar-group" key={d.date}>
+                <span>{d.count}</span>
+                <div className="bar" style={{ height: `${(d.count / max) * 155}px` }} />
+                <span>{dateLabel(`${d.date}T12:00:00+06:00`, { weekday: 'short' })}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className="panel padded">
+          <h2>Care outcomes</h2>
+          <div style={{ marginTop: 25 }}>
+            {[
+              ['Completed', s.completed],
+              ['No-show', s.noShow],
+              ['Completion rate', `${s.completionRate.toFixed(1)}%`],
+            ].map(([label, value]) => (
+              <div className="session-item" key={label}>
+                <span className="stat-icon">
+                  <CalendarDays size={18} />
+                </span>
+                <div>
+                  <strong>{label}</strong>
+                </div>
+                <h2>{value}</h2>
+              </div>
+            ))}
+          </div>
+          <p className="small" style={{ marginTop: 20 }}>
+            Revenue includes captured payments minus pending or completed refunds. Late check-in
+            measures arrival after the scheduled start; it does not measure queue waiting time.
+          </p>
+        </section>
+      </div>
+    </>
+  );
 }
