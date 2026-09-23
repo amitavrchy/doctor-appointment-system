@@ -31,9 +31,17 @@ export class AuthGuard implements CanActivate {
     const token = req.cookies?.access || req.headers.authorization?.replace(/^Bearer /, '');
     if (!token) throw new UnauthorizedException('Please sign in');
     try {
-      const payload = this.jwt.verify(token, { secret: process.env.JWT_ACCESS_SECRET });
+      const payload = this.jwt.verify(token, {
+        secret: process.env.JWT_ACCESS_SECRET,
+        issuer: 'careflow',
+        audience: 'careflow-web',
+      });
       const user = await this.db.user.findFirst({
-        where: { id: payload.sub, deletedAt: null },
+        where: {
+          id: payload.sub,
+          deletedAt: null,
+          sessions: { some: { id: payload.sid || 'missing', expiresAt: { gt: new Date() } } },
+        },
         select: {
           id: true,
           email: true,

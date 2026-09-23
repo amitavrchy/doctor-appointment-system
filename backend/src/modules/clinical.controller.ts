@@ -61,8 +61,18 @@ export class ClinicalController {
   @Post('prescriptions/:id/sign') @UseGuards(AuthGuard) sign(
     @CurrentUser() actor: Actor,
     @Param('id') id: string,
+    @Body() body: unknown,
   ) {
-    return this.clinical.sign(actor, id);
+    const i = parse(
+      z.object({
+        pin: z
+          .string()
+          .regex(/^\d{6}$/)
+          .optional(),
+      }),
+      body || {},
+    );
+    return this.clinical.sign(actor, id, i.pin);
   }
   @Post('prescriptions/:id/revoke') @UseGuards(AuthGuard) revoke(
     @CurrentUser() actor: Actor,

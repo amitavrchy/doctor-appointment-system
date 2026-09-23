@@ -20,6 +20,7 @@ model User {
   id String @id @default(cuid())
   email String @unique
   phone String? @unique
+  phoneVerifiedAt DateTime?
   passwordHash String
   fullName String
   globalRole String @default("PATIENT")
@@ -30,11 +31,17 @@ model User {
   consentHistory Boolean @default(false)
   deletedAt DateTime?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
   doctor DoctorProfile?
   roles UserClinicRole[]
   appointments Appointment[] @relation("patient")
   sessions RefreshSession[]
+  notificationPreference NotificationPreference?
+  carePlansAsPatient CarePlan[] @relation("planPatient")
+  carePlansAsDoctor CarePlan[] @relation("planDoctor")
+  consentGiven ConsentGrant[] @relation("consentPatient")
+  consentReceived ConsentGrant[] @relation("consentDoctor")
+  templates ClinicalTemplate[]
 }
 model DoctorProfile {
   userId String @id
@@ -48,6 +55,8 @@ model DoctorProfile {
   rules DoctorScheduleRule[]
   exceptions ScheduleException[]
   appointments Appointment[] @relation("doctor")
+  signingCredential DoctorSigningCredential?
+  receivedReferrals Referral[]
 }
 model Clinic {
   id String @id @default(cuid())
@@ -65,6 +74,16 @@ model Clinic {
   rules DoctorScheduleRule[]
   exceptions ScheduleException[]
   appointments Appointment[]
+  phone String?
+  fullRefundHours Int @default(24)
+  partialRefundHours Int @default(2)
+  partialRefundPercent Int @default(50)
+  noShowGraceMinutes Int @default(30)
+  allowPayLater Boolean @default(true)
+  taxBasisPoints Int @default(0)
+  invoicePrefix String @default("CF")
+  services ClinicService[]
+  carePlans CarePlan[]
 }
 model Room {
   id String @id @default(cuid())
@@ -72,6 +91,7 @@ model Room {
   name String
   clinic Clinic @relation(fields:[clinicId],references:[id])
   @@unique([clinicId,name])
+  active Boolean @default(true)
 }
 model UserClinicRole {
   id String @id @default(cuid())
@@ -110,6 +130,8 @@ model DoctorScheduleRule {
   doctor DoctorProfile @relation(fields:[doctorId],references:[userId])
   clinic Clinic @relation(fields:[clinicId],references:[id])
   @@index([doctorId,clinicId])
+  active Boolean @default(true)
+  updatedAt DateTime @default(now()) @updatedAt
 }
 model ScheduleException {
   id String @id @default(cuid())
@@ -120,6 +142,7 @@ model ScheduleException {
   startTimeLocal String?
   endTimeLocal String?
   reason String?
+  seriesId String?
   doctor DoctorProfile @relation(fields:[doctorId],references:[userId])
   clinic Clinic @relation(fields:[clinicId],references:[id])
   @@index([doctorId,clinicId,dateLocal])
@@ -134,6 +157,10 @@ model SlotHold {
   type String
   feeMinor Int
   roomId String?
+  baseFeeMinor Int?
+  taxMinor Int @default(0)
+  addons Json @default("[]")
+  refundPolicy Json?
   expiresAt DateTime
   createdAt DateTime @default(now())
   @@unique([doctorId,startAt])
@@ -154,10 +181,19 @@ model Appointment {
   reason String?
   cancelReason String?
   checkedInAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  priority Int @default(0)
+  queueNumber Int?
+  queueDate String?
+  baseFeeMinor Int?
+  taxMinor Int @default(0)
+  addons Json @default("[]")
+  refundPolicy Json?
   rescheduledFromId String? @unique
   idempotencyKey String @unique
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
   clinic Clinic @relation(fields:[clinicId],references:[id])
   doctor DoctorProfile @relation("doctor",fields:[doctorId],references:[userId])
   patient User @relation("patient",fields:[patientId],references:[id])
@@ -167,9 +203,16 @@ model Appointment {
   teleSession TelemedicineSession?
   attachments Attachment[]
   vitals Vital[]
+  labOrders LabOrder[]
+  referrals Referral[]
+  conflicts AppointmentConflict[]
+  messages ConsultationMessage[]
+  invoice Invoice?
   @@index([doctorId,startAt])
   @@index([clinicId,status])
   @@index([patientId,startAt])
+  @@unique([clinicId,queueDate,queueNumber])
+  @@index([status,completedAt])
 }
 model ClinicalNote {
   id String @id @default(cuid())
@@ -212,6 +255,12 @@ model Payment {
   idempotencyKey String @unique
   refundMinor Int @default(0)
   createdAt DateTime @default(now())
+  checkoutUrl String?
+  providerTransactionId String? @unique
+  paidAt DateTime?
+  refundedAt DateTime?
+  refundReference String?
+  lastReconciledAt DateTime?
   appointment Appointment @relation(fields:[appointmentId],references:[id])
 }
 model WebhookEvent {
@@ -240,7 +289,11 @@ model RefreshSession {
 }
 model OtpChallenge {
   id String @id @default(cuid())
-  email String
+  email String?
+  phone String?
+  channel String @default("EMAIL")
+  purpose String @default("LOGIN")
+  userId String?
   hash String
   attempts Int @default(0)
   expiresAt DateTime
@@ -283,6 +336,7 @@ model Attachment {
   mime String
   size Int
   encrypted Bytes
+  storageKey String?
   createdAt DateTime @default(now())
   appointment Appointment @relation(fields:[appointmentId],references:[id])
   @@index([appointmentId])
@@ -309,5 +363,180 @@ model PdfArtifact {
 model FeatureFlag {
   key String @id
   enabled Boolean @default(true)
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
+}
+model ClinicQueueCounter {
+  id String @id
+  value Int @default(0)
+}
+model ClinicService {
+  id String @id @default(cuid())
+  clinicId String
+  name String
+  feeMinor Int
+  active Boolean @default(true)
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  @@unique([clinicId,name])
+}
+model Invoice {
+  id String @id @default(cuid())
+  appointmentId String @unique
+  number String @unique
+  subtotalMinor Int
+  taxMinor Int
+  totalMinor Int
+  currency String @default("BDT")
+  snapshot Json
+  issuedAt DateTime @default(now())
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+}
+model LedgerEntry {
+  id String @id @default(cuid())
+  journalId String
+  clinicId String
+  paymentId String
+  account String
+  side String
+  amountMinor Int
+  currency String @default("BDT")
+  createdAt DateTime @default(now())
+  @@unique([journalId,account,side])
+  @@index([clinicId,createdAt])
+  @@index([paymentId])
+}
+model ReconciliationRun {
+  id String @id @default(cuid())
+  clinicId String
+  actorId String
+  provider String
+  status String @default("PENDING")
+  checked Int @default(0)
+  repaired Int @default(0)
+  errors Int @default(0)
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  @@index([status,startedAt])
+}
+model AppointmentConflict {
+  id String @id @default(cuid())
+  appointmentId String
+  sourceId String
+  reason String
+  status String @default("OPEN")
+  resolvedBy String?
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+  @@unique([appointmentId,sourceId])
+}
+model OutboxEvent {
+  id String @id @default(cuid())
+  type String
+  aggregateId String
+  clinicId String?
+  userId String?
+  payload Json
+  processedAt DateTime?
+  attempts Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  @@index([processedAt,nextAttemptAt])
+}
+model NotificationPreference {
+  userId String @id
+  email Boolean @default(true)
+  sms Boolean @default(false)
+  inApp Boolean @default(true)
+  reminders Boolean @default(true)
+  followUps Boolean @default(true)
+  user User @relation(fields:[userId],references:[id])
+}
+model ConsentGrant {
+  id String @id @default(cuid())
+  patientId String
+  doctorId String
+  scope String @default("CROSS_CLINIC_HISTORY")
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  patient User @relation("consentPatient",fields:[patientId],references:[id])
+  doctor User @relation("consentDoctor",fields:[doctorId],references:[id])
+  @@index([patientId,doctorId,revokedAt])
+}
+model ClinicalTemplate {
+  id String @id @default(cuid())
+  authorId String
+  clinicId String
+  title String
+  specialty String?
+  soap Json
+  shared Boolean @default(false)
+  author User @relation(fields:[authorId],references:[id])
+  @@index([clinicId,authorId])
+}
+model CarePlan {
+  id String @id @default(cuid())
+  patientId String
+  doctorId String
+  clinicId String
+  title String
+  description String
+  status String @default("ACTIVE")
+  reviewAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  patient User @relation("planPatient",fields:[patientId],references:[id])
+  doctor User @relation("planDoctor",fields:[doctorId],references:[id])
+  clinic Clinic @relation(fields:[clinicId],references:[id])
+  tasks CarePlanTask[]
+  @@index([patientId,status])
+}
+model CarePlanTask {
+  id String @id @default(cuid())
+  planId String
+  title String
+  dueAt DateTime?
+  completedAt DateTime?
+  completedBy String?
+  plan CarePlan @relation(fields:[planId],references:[id])
+}
+model LabOrder {
+  id String @id @default(cuid())
+  appointmentId String
+  title String
+  tests Json
+  status String @default("ORDERED")
+  results Json?
+  resultAttachmentId String?
+  reviewedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+}
+model Referral {
+  id String @id @default(cuid())
+  appointmentId String
+  targetDoctorId String?
+  specialty String
+  reason String
+  status String @default("OPEN")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+  targetDoctor DoctorProfile? @relation(fields:[targetDoctorId],references:[userId])
+}
+model ConsultationMessage {
+  id String @id @default(cuid())
+  appointmentId String
+  authorId String
+  text String
+  createdAt DateTime @default(now())
+  appointment Appointment @relation(fields:[appointmentId],references:[id])
+  @@index([appointmentId,createdAt])
+}
+model DoctorSigningCredential {
+  doctorId String @id
+  pinHash String
+  updatedAt DateTime @default(now()) @updatedAt
+  doctor DoctorProfile @relation(fields:[doctorId],references:[userId])
 }

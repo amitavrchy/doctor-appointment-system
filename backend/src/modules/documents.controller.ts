@@ -9,15 +9,19 @@ import {
   UseGuards,
   BadRequestException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { z } from 'zod';
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'crypto';
 import type { Response } from 'express';
 import { PrismaService } from '../common/prisma.service';
 import { Actor, AuthGuard, CurrentUser, canReadClinical, requireRole } from '../common/access';
 import { parse } from '../common/validation';
 import { AppointmentsService } from './appointments.service';
 import { AuditService } from '../common/audit.service';
+import { ObjectStorageService } from '../common/object-storage.service';
+import { ClinicalService } from './clinical.service';
+import { Prisma } from '@prisma/client';
 @Controller()
 @UseGuards(AuthGuard)
 export class DocumentsController {
@@ -25,6 +29,8 @@ export class DocumentsController {
     private db: PrismaService,
     private appointments: AppointmentsService,
     private audit: AuditService,
+    @Optional() private storage?: ObjectStorageService,
+    @Optional() private clinical?: ClinicalService,
   ) {}
   @Post('appointments/:id/attachments') async upload(
     @CurrentUser() actor: Actor,
@@ -64,6 +70,7 @@ export class DocumentsController {
       cipher.final(),
       cipher.getAuthTag(),
     ]);
+    const storageKey = (await this.storage?.put(randomUUID(), encrypted)) || null;
     const file = await this.db.attachment.create({
       data: {
         appointmentId,
@@ -71,7 +78,8 @@ export class DocumentsController {
         name: input.name.replace(/[\r\n\\/]/g, '_'),
         mime: input.mime,
         size: bytes.length,
-        encrypted,
+        encrypted: storageKey ? new Uint8Array() : encrypted,
+        storageKey,
       },
       select: { id: true, name: true, mime: true, size: true, createdAt: true },
     });
@@ -100,7 +108,9 @@ export class DocumentsController {
       include: { appointment: true },
     });
     canReadClinical(actor, file.appointment);
-    const encrypted = Buffer.from(file.encrypted);
+    const encrypted = file.storageKey
+      ? await this.storage!.get(file.storageKey)
+      : Buffer.from(file.encrypted);
     const decipher = createDecipheriv(
       'aes-256-gcm',
       Buffer.from(process.env.ATTACHMENT_ENCRYPTION_KEY!, 'hex'),
@@ -179,10 +189,22 @@ export class DocumentsController {
     await this.audit.record(actor.id, 'VITALS_RECORDED', 'Vital', vital.id, a.clinicId);
     return vital;
   }
-  @Get('notes/search') async search(@CurrentUser() actor: Actor, @Query('q') query: string) {
-    const q = parse(z.string().trim().min(2).max(100), query);
+  @Get('notes/search') async search(
+    @CurrentUser() actor: Actor,
+    @Query('q') query: string,
+    @Query('patientId') patientId?: string,
+    @Query('clinicId') clinicId?: string,
+  ) {
+    const q = parse(z.string().trim().min(2).max(100), query),
+      history = await (this.clinical || new ClinicalService(this.db, this.appointments)).history(
+        actor,
+        patientId || actor.id,
+        clinicId,
+      );
+    if (!history.length) return [];
+    const ids = history.map((a) => a.id);
     return this.db.$queryRaw<
       { id: string; appointmentId: string; createdAt: Date }[]
-    >`SELECT n.id, n."appointmentId", n."createdAt" FROM "ClinicalNote" n JOIN "Appointment" a ON a.id=n."appointmentId" WHERE (a."patientId"=${actor.id} OR a."doctorId"=${actor.id}) AND n."searchVector" @@ plainto_tsquery('english', ${q}) ORDER BY n."createdAt" DESC LIMIT 50`;
+    >`SELECT n.id,n."appointmentId",n."createdAt" FROM "ClinicalNote" n WHERE n."appointmentId" IN (${Prisma.join(ids)}) AND n."searchVector" @@ plainto_tsquery('english',${q}) ORDER BY n."createdAt" DESC LIMIT 50`;
   }
 }

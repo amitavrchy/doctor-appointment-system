@@ -16,11 +16,13 @@ import { AuthService } from './auth.service';
 import { AuthGuard, Actor, AuthRequest, CurrentUser } from '../common/access';
 import { parse, id } from '../common/validation';
 import { PrismaService } from '../common/prisma.service';
+import { RealtimeGateway } from './realtime.gateway';
 @Controller('auth')
 export class AuthController {
   constructor(
     private auth: AuthService,
     private db: PrismaService,
+    private realtime: RealtimeGateway,
   ) {}
   private cookies(res: Response, tokens: { access: string; refresh: string }) {
     const base = {
@@ -73,13 +75,26 @@ export class AuthController {
     );
   }
   @Post('logout') async logout(@Req() req: AuthRequest, @Res({ passthrough: true }) res: Response) {
-    await this.auth.logout(req.cookies?.refresh || '');
+    const userId = await this.auth.logout(req.cookies?.refresh || '');
+    if (userId) this.realtime.disconnectUser(userId);
     res.clearCookie('access', { path: '/' });
     res.clearCookie('refresh', { path: '/' });
     return { ok: true };
   }
   @Post('otp/request') requestOtp(@Body() body: unknown) {
-    return this.auth.requestOtp(parse(z.object({ email: z.email() }), body).email);
+    const i = parse(
+      z
+        .object({
+          email: z.email().optional(),
+          phone: z
+            .string()
+            .regex(/^\+[1-9]\d{6,14}$/)
+            .optional(),
+        })
+        .refine((i) => !!i.email !== !!i.phone, 'Choose email or phone'),
+      body,
+    );
+    return this.auth.requestOtp(i.email || '', i.phone);
   }
   @Post('otp/verify') async verifyOtp(
     @Body() body: unknown,
@@ -99,7 +114,10 @@ export class AuthController {
   @Get('me') @UseGuards(AuthGuard) me(@CurrentUser() actor: Actor) {
     return this.auth.me(actor);
   }
-  @Patch('me') @UseGuards(AuthGuard) profile(@CurrentUser() actor: Actor, @Body() body: unknown) {
+  @Patch('me') @UseGuards(AuthGuard) async profile(
+    @CurrentUser() actor: Actor,
+    @Body() body: unknown,
+  ) {
     const input = parse(
       z.object({
         fullName: z.string().trim().min(2).max(100),
@@ -121,9 +139,19 @@ export class AuthController {
       }),
       body,
     );
+    const current = await this.db.user.findUniqueOrThrow({
+      where: { id: actor.id },
+      select: { phone: true },
+    });
     return this.db.user.update({
       where: { id: actor.id },
-      data: { ...input, dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null },
+      data: {
+        ...(input.phone !== undefined && input.phone !== current.phone
+          ? { phoneVerifiedAt: null }
+          : {}),
+        ...input,
+        dateOfBirth: input.dateOfBirth ? new Date(input.dateOfBirth) : null,
+      },
       select: { id: true, fullName: true },
     });
   }

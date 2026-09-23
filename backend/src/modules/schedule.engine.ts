@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon';
 import { overlaps } from '../common/domain';
+import { recurrenceDates } from './recurrence';
 type Rule = {
   rrule: string;
   startTimeLocal: string;
@@ -11,6 +12,7 @@ type Rule = {
   consultationType: string;
   feeMinor: number;
   roomId: string | null;
+  active?: boolean;
 };
 type Exception = {
   dateLocal: Date;
@@ -26,7 +28,6 @@ export type Slot = {
   roomId: string | null;
   available: boolean;
 };
-const days = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 export function generateSlots(
   rules: Rule[],
   exceptions: Exception[],
@@ -37,6 +38,11 @@ export function generateSlots(
   now = new Date(),
 ): Slot[] {
   const output: Slot[] = [];
+  const occurrences = new Map(
+    rules
+      .filter((r) => r.active !== false)
+      .map((r) => [r, recurrenceDates(r.rrule, r.effectiveFrom, from, to, zone)]),
+  );
   for (
     let date = DateTime.fromISO(from, { zone }).startOf('day'),
       end = DateTime.fromISO(to, { zone }).startOf('day');
@@ -49,14 +55,14 @@ export function generateSlots(
     if (ex.some((e) => e.type === 'DAY_OFF')) continue;
     const local = (time: string) => DateTime.fromISO(`${date.toISODate()}T${time}`, { zone });
     for (const rule of rules) {
+      if (rule.active === false) continue;
       if (
         date.endOf('day').toJSDate() < rule.effectiveFrom ||
         (rule.effectiveTo && date.toJSDate() > rule.effectiveTo)
       )
         continue;
-      const byday = rule.rrule.match(/BYDAY=([A-Z,]+)/)?.[1]?.split(',') || [];
-      if (!byday.includes(days[date.weekday - 1])) continue;
       const custom = ex.find((e) => e.type === 'CUSTOM_HOURS');
+      if (!custom && !occurrences.get(rule)?.has(date.toISODate()!)) continue;
       const start = local(custom?.startTimeLocal || rule.startTimeLocal),
         endTime = local(custom?.endTimeLocal || rule.endTimeLocal);
       if (

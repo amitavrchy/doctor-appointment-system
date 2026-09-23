@@ -51,10 +51,41 @@ export function refundAmount(
   startAt: Date,
   now = new Date(),
   doctorCancelled = false,
+  policy = { fullRefundHours: 24, partialRefundHours: 2, partialRefundPercent: 50 },
 ) {
   const hours = (startAt.getTime() - now.getTime()) / 3600000;
-  return doctorCancelled || hours > 24 ? fee : hours >= 2 ? Math.floor(fee / 2) : 0;
+  return doctorCancelled || hours > policy.fullRefundHours
+    ? fee
+    : hours >= policy.partialRefundHours
+      ? Math.floor((fee * policy.partialRefundPercent) / 100)
+      : 0;
 }
 export function overlaps(a: { startAt: Date; endAt: Date }, b: { startAt: Date; endAt: Date }) {
   return a.startAt < b.endAt && a.endAt > b.startAt;
+}
+
+export function bookingPolicy(
+  snapshot: unknown,
+  fallback: { fullRefundHours: number; partialRefundHours: number; partialRefundPercent: number },
+) {
+  if (
+    snapshot &&
+    typeof snapshot === 'object' &&
+    'fullRefundHours' in snapshot &&
+    'partialRefundHours' in snapshot &&
+    'partialRefundPercent' in snapshot
+  ) {
+    const p = snapshot as {
+      fullRefundHours: number;
+      partialRefundHours: number;
+      partialRefundPercent: number;
+    };
+    if (
+      [p.fullRefundHours, p.partialRefundHours, p.partialRefundPercent].every(
+        (v) => typeof v === 'number' && Number.isFinite(v),
+      )
+    )
+      return p;
+  }
+  return fallback;
 }

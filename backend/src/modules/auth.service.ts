@@ -48,7 +48,7 @@ export class AuthService {
   }
   async issue(userId: string, device: string) {
     const refresh = randomBytes(48).toString('base64url');
-    await this.db.refreshSession.create({
+    const session = await this.db.refreshSession.create({
       data: {
         userId,
         tokenHash: digest(refresh),
@@ -58,8 +58,13 @@ export class AuthService {
     });
     return {
       access: this.jwt.sign(
-        { sub: userId },
-        { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m' },
+        { sub: userId, sid: session.id },
+        {
+          secret: process.env.JWT_ACCESS_SECRET,
+          expiresIn: '15m',
+          issuer: 'careflow',
+          audience: 'careflow-web',
+        },
       ),
       refresh,
     };
@@ -78,7 +83,11 @@ export class AuthService {
     return this.issue(session.userId, device);
   }
   async logout(token: string) {
+    const session = await this.db.refreshSession.findUnique({
+      where: { tokenHash: digest(token) },
+    });
     await this.db.refreshSession.deleteMany({ where: { tokenHash: digest(token) } });
+    return session?.userId;
   }
   me(actor: Actor) {
     return this.db.user.findUnique({
@@ -87,6 +96,7 @@ export class AuthService {
         id: true,
         email: true,
         phone: true,
+        phoneVerifiedAt: true,
         fullName: true,
         globalRole: true,
         dateOfBirth: true,
@@ -99,32 +109,61 @@ export class AuthService {
       },
     });
   }
-  async requestOtp(email: string) {
-    if (!process.env.SMTP_URL && process.env.DEMO_MODE !== 'true')
-      throw new BadRequestException('Email delivery is not configured');
+  async requestOtp(email: string, phone?: string, purpose = 'LOGIN', userId?: string) {
+    const sms = !!phone;
+    if (
+      (sms ? !process.env.SMS_API_URL || !process.env.SMS_API_KEY : !process.env.SMTP_URL) &&
+      process.env.DEMO_MODE !== 'true'
+    )
+      throw new BadRequestException(`${sms ? 'SMS' : 'Email'} delivery is not configured`);
     const code = String(randomInt(100000, 1000000));
     const challenge = await this.db.otpChallenge.create({
       data: {
-        email: email.toLowerCase(),
+        email: email ? email.toLowerCase() : null,
+        phone: phone || null,
+        channel: sms ? 'SMS' : 'EMAIL',
+        purpose,
+        userId,
         hash: createHmac('sha256', process.env.OTP_PEPPER!).update(code).digest('hex'),
         expiresAt: new Date(Date.now() + 300000),
       },
     });
-    if (process.env.SMTP_URL)
+    if (!sms && process.env.SMTP_URL)
       await createTransport(process.env.SMTP_URL).sendMail({
         from: 'Careflow <no-reply@careflow.local>',
         to: email,
         subject: 'Your Careflow sign-in code',
         text: `Your code is ${code}. It expires in 5 minutes.`,
       });
+    if (sms && process.env.SMS_API_URL && process.env.SMS_API_KEY) {
+      const response = await fetch(process.env.SMS_API_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.SMS_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          to: phone,
+          text: `Your Careflow code is ${code}. It expires in 5 minutes.`,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new BadRequestException('SMS delivery could not be completed');
+    }
     return {
       challengeId: challenge.id,
       ...(process.env.DEMO_MODE === 'true' ? { demoCode: code } : {}),
     };
   }
-  async verifyOtp(challengeId: string, code: string, device: string) {
+  async consumeOtp(challengeId: string, code: string, purpose = 'LOGIN', expectedUserId?: string) {
     const challenge = await this.db.otpChallenge.findUnique({ where: { id: challengeId } });
-    if (!challenge || challenge.expiresAt < new Date() || challenge.attempts >= 5)
+    if (
+      !challenge ||
+      challenge.expiresAt < new Date() ||
+      challenge.attempts >= 5 ||
+      challenge.purpose !== purpose ||
+      (expectedUserId && challenge.userId !== expectedUserId)
+    )
       throw new UnauthorizedException('Code expired or invalid');
     // Atomic increment prevents concurrent guesses bypassing the limit.
     const attempt = await this.db.otpChallenge.updateMany({
@@ -138,10 +177,23 @@ export class AuthService {
       throw new UnauthorizedException('Code expired or invalid');
     const consumed = await this.db.otpChallenge.deleteMany({ where: { id: challenge.id } });
     if (!consumed.count) throw new UnauthorizedException('Code already used');
+    if (!challenge.email && !challenge.phone)
+      throw new UnauthorizedException('Invalid challenge destination');
     const user = await this.db.user.findFirst({
-      where: { email: challenge.email, deletedAt: null },
+      where: {
+        ...(challenge.userId
+          ? { id: challenge.userId }
+          : challenge.channel === 'SMS' && challenge.phone
+            ? { phone: challenge.phone, phoneVerifiedAt: { not: null } }
+            : { email: challenge.email! }),
+        deletedAt: null,
+      },
     });
     if (!user) throw new UnauthorizedException('Register before signing in');
+    return { user, challenge };
+  }
+  async verifyOtp(challengeId: string, code: string, device: string) {
+    const { user } = await this.consumeOtp(challengeId, code);
     return this.issue(user.id, device);
   }
 }

@@ -8,6 +8,7 @@ import cookieParser from 'cookie-parser';
 import type { Request, Response, NextFunction } from 'express';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaService } from './common/prisma.service';
+import { SafeErrorFilter } from './common/safe-error.filter';
 async function bootstrap() {
   for (const key of [
     'DATABASE_URL',
@@ -25,6 +26,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
   app.useBodyParser('json', { limit: '8mb' });
   app.enableShutdownHooks();
+  app.useGlobalFilters(new SafeErrorFilter());
   app.use(helmet());
   app.use(cookieParser());
   const origins = (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',');
@@ -34,6 +36,9 @@ async function bootstrap() {
     res.setHeader('Cache-Control', 'no-store');
     if (
       !['GET', 'HEAD', 'OPTIONS'].includes(req.method) &&
+      !/^\/payments\/(return\/(bkash|sslcommerz)|ipn\/sslcommerz|webhooks\/stripe)$/.test(
+        req.path,
+      ) &&
       req.headers.origin &&
       !origins.includes(req.headers.origin)
     ) {
@@ -42,7 +47,7 @@ async function bootstrap() {
     }
     try {
       const auth = req.path.startsWith('/auth/') && req.method === 'POST';
-      const bucket = `rate:${auth ? 'auth' : 'api'}:${req.ip}:${Math.floor(Date.now() / 60000)}`;
+      const bucket = `rate:${auth ? `auth:${req.path}` : 'api'}:${req.ip}:${Math.floor(Date.now() / 60000)}`;
       const count = await redis.incr(bucket);
       if (count === 1) await redis.expire(bucket, 61);
       if (count > (auth ? 20 : 300)) {

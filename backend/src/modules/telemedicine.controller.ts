@@ -28,7 +28,10 @@ export class TelemedicineController {
     const a = await this.appointments.get(actor, appointmentId);
     if (actor.id !== a.patientId && actor.id !== a.doctorId)
       throw new ForbiddenException('Only the patient and doctor can join');
-    if (!a.teleSession || ['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(a.status))
+    if (
+      !a.teleSession ||
+      ['PENDING_PAYMENT', 'COMPLETED', 'CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(a.status)
+    )
       throw new ConflictException('No active telemedicine session');
     return a;
   }

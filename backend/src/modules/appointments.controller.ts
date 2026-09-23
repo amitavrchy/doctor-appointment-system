@@ -33,6 +33,7 @@ export class AppointmentsController {
           startAt: iso,
           type: kind,
           patientId: id.optional(),
+          addonIds: z.array(id).max(10).optional(),
         }),
         body,
       ),
@@ -46,8 +47,22 @@ export class AppointmentsController {
     @Headers('idempotency-key') key: string,
     @Body() body: unknown,
   ) {
-    const i = parse(z.object({ holdId: id, reason: z.string().max(1000).optional() }), body);
-    return this.appointments.confirm(actor, i.holdId, this.key(key), i.reason);
+    const i = parse(
+      z.object({
+        holdId: id,
+        reason: z.string().max(1000).optional(),
+        paymentProvider: z.enum(['demo', 'stripe', 'bkash', 'sslcommerz']).optional(),
+      }),
+      body,
+    );
+    return this.appointments.confirm(
+      actor,
+      i.holdId,
+      this.key(key),
+      i.reason,
+      undefined,
+      i.paymentProvider,
+    );
   }
   @Get() list(@CurrentUser() actor: Actor, @Query('clinicId') clinicId?: string) {
     return this.appointments.list(actor, clinicId);

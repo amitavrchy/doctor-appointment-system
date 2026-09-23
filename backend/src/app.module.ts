@@ -20,6 +20,16 @@ import { OperationsController } from './modules/operations.controller';
 import { JobsService } from './modules/jobs.service';
 import { AdminController } from './modules/admin.controller';
 import { DocumentsController } from './modules/documents.controller';
+import { QueueController } from './modules/queue.controller';
+import { ScheduleManagementController } from './modules/schedule-management.controller';
+import { ClinicalWorkflowsController } from './modules/clinical-workflows.controller';
+import { SecurityController } from './modules/security.controller';
+import { PreferencesController } from './modules/preferences.controller';
+import { ObjectStorageService } from './common/object-storage.service';
+import { FinanceController } from './modules/finance.controller';
+import { PaymentReturnsController } from './modules/payment-returns.controller';
+import { ReconciliationService } from './modules/reconciliation.service';
+import { JobsController } from './modules/jobs.controller';
 @Module({
   imports: [JwtModule.register({})],
   controllers: [
@@ -33,6 +43,14 @@ import { DocumentsController } from './modules/documents.controller';
     OperationsController,
     DocumentsController,
     AdminController,
+    QueueController,
+    ScheduleManagementController,
+    ClinicalWorkflowsController,
+    SecurityController,
+    PreferencesController,
+    FinanceController,
+    PaymentReturnsController,
+    JobsController,
   ],
   providers: [
     PrismaService,
@@ -45,6 +63,8 @@ import { DocumentsController } from './modules/documents.controller';
     PdfService,
     RealtimeGateway,
     JobsService,
+    ObjectStorageService,
+    ReconciliationService,
   ],
 })
 export class AppModule {}

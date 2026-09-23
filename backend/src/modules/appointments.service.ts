@@ -11,8 +11,12 @@ import { PrismaService } from '../common/prisma.service';
 import { Actor, canReadAppointment, hasRole, requireRole } from '../common/access';
 import { lockDoctors } from '../common/locks/pg-advisory.lock';
 import { SchedulesService } from './schedules.service';
-import { assertTransition, refundAmount } from '../common/domain';
+import { assertTransition, refundAmount, bookingPolicy } from '../common/domain';
 import { RealtimeGateway } from './realtime.gateway';
+import { priceVisit, issueInvoice } from './billing.domain';
+import { paymentProvider } from './payment.providers';
+import { notify } from './outbox';
+import { lockRooms } from '../common/locks/room.lock';
 export const appointmentInclude = {
   doctor: { include: { user: { select: { fullName: true } } } },
   clinic: true,
@@ -50,7 +54,14 @@ export class AppointmentsService {
   }
   async hold(
     actor: Actor,
-    i: { doctorId: string; clinicId: string; startAt: string; type: string; patientId?: string },
+    i: {
+      doctorId: string;
+      clinicId: string;
+      startAt: string;
+      type: string;
+      patientId?: string;
+      addonIds?: string[];
+    },
   ) {
     if (
       i.type === 'TELEMEDICINE' &&
@@ -59,7 +70,18 @@ export class AppointmentsService {
     )
       throw new BadRequestException('Telemedicine booking is temporarily unavailable');
     const patientId = i.patientId || actor.id;
-    if (patientId !== actor.id) requireRole(actor, i.clinicId, ['RECEPTIONIST', 'CLINIC_ADMIN']);
+    if (patientId !== actor.id) {
+      if (actor.id === i.doctorId && hasRole(actor, i.clinicId, ['DOCTOR'])) {
+        if (
+          !(await this.db.appointment.findFirst({
+            where: { patientId, doctorId: actor.id, clinicId: i.clinicId },
+          }))
+        )
+          throw new ForbiddenException(
+            'A treating relationship is required to book on behalf of this patient',
+          );
+      } else requireRole(actor, i.clinicId, ['RECEPTIONIST', 'CLINIC_ADMIN']);
+    }
     if (!(await this.db.user.findFirst({ where: { id: patientId, deletedAt: null } })))
       throw new BadRequestException('Patient not found');
     const clinic = await this.db.clinic.findUnique({ where: { id: i.clinicId } });
@@ -86,6 +108,37 @@ export class AppointmentsService {
         );
         if (!slot)
           throw new ConflictException('This slot is no longer available. Choose another time.');
+        await lockRooms(tx, slot.roomId);
+        if (slot.roomId) {
+          const occupied = await tx.appointment.count({
+            where: {
+              roomId: slot.roomId,
+              status: { in: ['HELD', 'PENDING_PAYMENT', 'CONFIRMED', 'CHECKED_IN', 'IN_PROGRESS'] },
+              startAt: { lt: slot.endAt },
+              endAt: { gt: slot.startAt },
+            },
+          });
+          const held = await tx.slotHold.count({
+            where: {
+              roomId: slot.roomId,
+              expiresAt: { gt: new Date() },
+              startAt: { lt: slot.endAt },
+              endAt: { gt: slot.startAt },
+            },
+          });
+          if (occupied || held)
+            throw new ConflictException(
+              'The consultation room was just reserved. Choose another time.',
+            );
+        }
+        const addonIds = [...new Set(i.addonIds || [])];
+        const addons = await tx.clinicService.findMany({
+          where: { id: { in: addonIds }, clinicId: i.clinicId, active: true },
+          select: { id: true, name: true, feeMinor: true },
+        });
+        if (addons.length !== addonIds.length)
+          throw new BadRequestException('One or more services are not available at this clinic');
+        const priced = priceVisit(slot.feeMinor, addons, clinic.taxBasisPoints);
         return tx.slotHold.create({
           data: {
             doctorId: i.doctorId,
@@ -94,7 +147,16 @@ export class AppointmentsService {
             startAt: slot.startAt,
             endAt: slot.endAt,
             type: slot.type,
-            feeMinor: slot.feeMinor,
+            refundPolicy: {
+              fullRefundHours: clinic.fullRefundHours,
+              partialRefundHours: clinic.partialRefundHours,
+              partialRefundPercent: clinic.partialRefundPercent,
+              allowPayLater: clinic.allowPayLater,
+            },
+            feeMinor: priced.total,
+            baseFeeMinor: priced.baseFeeMinor,
+            taxMinor: priced.taxMinor,
+            addons: priced.addons,
             roomId: slot.roomId,
             expiresAt: new Date(Date.now() + 180000),
           },
@@ -106,7 +168,8 @@ export class AppointmentsService {
   async release(actor: Actor, id: string) {
     const h = await this.db.slotHold.findUnique({ where: { id } });
     if (!h) return { ok: true };
-    if (h.patientId !== actor.id) requireRole(actor, h.clinicId, ['RECEPTIONIST', 'CLINIC_ADMIN']);
+    if (h.patientId !== actor.id && h.doctorId !== actor.id)
+      requireRole(actor, h.clinicId, ['RECEPTIONIST', 'CLINIC_ADMIN']);
     await this.db.$transaction(async (tx) => {
       await lockDoctors(tx, h.doctorId);
       await tx.slotHold.deleteMany({ where: { id } });
@@ -119,7 +182,10 @@ export class AppointmentsService {
     key: string,
     reason?: string,
     rescheduledFromId?: string,
+    providerName?: string,
   ) {
+    const selectedProvider = providerName || process.env.PAYMENT_PROVIDER || 'demo';
+    paymentProvider(selectedProvider);
     const previous = await this.db.appointment.findUnique({
       where: { idempotencyKey: key },
       include: appointmentInclude,
@@ -130,7 +196,7 @@ export class AppointmentsService {
     }
     const hold = await this.db.slotHold.findUnique({ where: { id: holdId } });
     if (!hold) throw new ConflictException('Your hold expired. Select a time again.');
-    if (hold.patientId !== actor.id)
+    if (hold.patientId !== actor.id && hold.doctorId !== actor.id)
       requireRole(actor, hold.clinicId, ['RECEPTIONIST', 'CLINIC_ADMIN']);
     const old = rescheduledFromId ? await this.get(actor, rescheduledFromId) : null;
     if (old && old.patientId !== hold.patientId)
@@ -138,6 +204,7 @@ export class AppointmentsService {
     const result = await this.db.$transaction(
       async (tx) => {
         await lockDoctors(tx, hold.doctorId, ...(old ? [old.doctorId] : []));
+        await lockRooms(tx, hold.roomId, old?.roomId);
         const duplicate = await tx.appointment.findUnique({
           where: { idempotencyKey: key },
           include: appointmentInclude,
@@ -176,7 +243,13 @@ export class AppointmentsService {
               where: { id: prior.payment.id },
               data: {
                 status: 'REFUND_PENDING',
-                refundMinor: refundAmount(prior.feeMinor, prior.startAt),
+                refundMinor: refundAmount(
+                  prior.feeMinor,
+                  prior.startAt,
+                  new Date(),
+                  actor.id === prior.doctorId,
+                  bookingPolicy(prior.refundPolicy, old.clinic),
+                ),
               },
             });
           await tx.telemedicineSession.updateMany({
@@ -193,14 +266,24 @@ export class AppointmentsService {
             startAt: hold.startAt,
             endAt: hold.endAt,
             type: hold.type,
+            refundPolicy: hold.refundPolicy as import('@prisma/client').Prisma.InputJsonValue,
             feeMinor: hold.feeMinor,
+            baseFeeMinor: hold.baseFeeMinor,
+            taxMinor: hold.taxMinor,
+            addons: hold.addons as import('@prisma/client').Prisma.InputJsonValue,
             idempotencyKey: key,
             reason,
             rescheduledFromId,
-            status: 'CONFIRMED',
+            status:
+              ((hold.refundPolicy as { allowPayLater?: boolean } | null)?.allowPayLater ??
+                clinic.allowPayLater) ||
+              hold.feeMinor === 0
+                ? 'CONFIRMED'
+                : 'PENDING_PAYMENT',
             payment: {
               create: {
-                provider: process.env.PAYMENT_PROVIDER || 'demo',
+                provider: selectedProvider,
+                status: hold.feeMinor === 0 ? 'SUCCEEDED' : 'CREATED',
                 amountMinor: hold.feeMinor,
                 idempotencyKey: `payment:${key}`,
               },
@@ -218,14 +301,19 @@ export class AppointmentsService {
           },
           include: appointmentInclude,
         });
+        await issueInvoice(tx, a);
         await tx.slotHold.delete({ where: { id: hold.id } });
-        await tx.notification.create({
-          data: {
-            userId: hold.patientId,
-            title: old ? 'Appointment rescheduled' : 'Appointment confirmed',
-            body: `Your appointment at ${clinic.name} is confirmed.`,
-          },
-        });
+        await notify(
+          tx,
+          hold.patientId,
+          old
+            ? 'Appointment rescheduled'
+            : a.status === 'PENDING_PAYMENT'
+              ? 'Appointment awaiting payment'
+              : 'Appointment confirmed',
+          `Your visit at ${clinic.name} is ${a.status === 'PENDING_PAYMENT' ? 'reserved pending payment' : 'confirmed'}.`,
+          a.clinicId,
+        );
         await tx.auditLog.create({
           data: {
             actorId: actor.id,
@@ -240,6 +328,7 @@ export class AppointmentsService {
       { timeout: 15000, maxWait: 30000 },
     );
     this.realtime.appointmentUpdated(result);
+    void this.realtime.refreshQueue?.(result.doctorId, result.clinicId);
     return result;
   }
   async transition(actor: Actor, id: string, status: AppointmentStatus, reason?: string) {
@@ -263,6 +352,23 @@ export class AppointmentsService {
         include: { payment: true },
       });
       assertTransition('appointment', current.status, status);
+      let queueData: {} | { queueNumber: number; queueDate: string } = {};
+      if (status === 'CHECKED_IN') {
+        const queueDate = DateTime.now().setZone(a.clinic.timezone).toISODate()!;
+        const counter = await tx.clinicQueueCounter.upsert({
+          where: { id: `${a.clinicId}:${queueDate}` },
+          create: { id: `${a.clinicId}:${queueDate}`, value: 1 },
+          update: { value: { increment: 1 } },
+        });
+        queueData = { queueNumber: counter.value, queueDate };
+      }
+      if (
+        status === 'IN_PROGRESS' &&
+        (await tx.appointment.count({
+          where: { doctorId: a.doctorId, status: 'IN_PROGRESS', id: { not: id } },
+        }))
+      )
+        throw new ConflictException('Complete the current consultation first');
       if (status === 'CANCELLED' && current.startAt <= new Date() && actor.id === current.patientId)
         throw new ConflictException('Past appointments cannot be cancelled');
       if (status === 'CANCELLED' && current.payment?.status === 'SUCCEEDED') {
@@ -271,6 +377,7 @@ export class AppointmentsService {
           current.startAt,
           new Date(),
           actor.id === current.doctorId,
+          bookingPolicy(current.refundPolicy, a.clinic),
         );
         if (amount > 0)
           await tx.payment.update({
@@ -287,6 +394,9 @@ export class AppointmentsService {
         where: { id },
         data: {
           status,
+          ...queueData,
+          ...(status === 'IN_PROGRESS' ? { startedAt: new Date() } : {}),
+          ...(status === 'COMPLETED' ? { completedAt: new Date() } : {}),
           ...(status === 'CANCELLED' ? { cancelReason: reason || 'Cancelled by user' } : {}),
           ...(status === 'CHECKED_IN' ? { checkedInAt: new Date() } : {}),
         },
@@ -301,9 +411,20 @@ export class AppointmentsService {
           entityId: id,
         },
       });
+      if (status === 'CANCELLED' || status === 'COMPLETED')
+        await notify(
+          tx,
+          a.patientId,
+          status === 'CANCELLED' ? 'Appointment cancelled' : 'Your consultation is complete',
+          status === 'CANCELLED'
+            ? 'Your visit was cancelled. Any eligible refund will be processed automatically.'
+            : 'Your doctor has completed your visit. Care notes and prescriptions are available in Health records.',
+          a.clinicId,
+        );
       return result;
     });
     this.realtime.appointmentUpdated(result);
+    void this.realtime.refreshQueue?.(result.doctorId, result.clinicId);
     return result;
   }
 }

@@ -10,6 +10,7 @@ import { AppointmentsService } from './appointments.service';
 import { assertTransition } from '../common/domain';
 import { Prisma } from '@prisma/client';
 import { createHmac } from 'crypto';
+import { verify } from 'argon2';
 export type Medication = {
   name: string;
   dosage: string;
@@ -31,7 +32,10 @@ export class ClinicalService {
       });
       if (!care) throw new ForbiddenException('A treating relationship is required');
       const patient = await this.db.user.findUniqueOrThrow({ where: { id: patientId } });
-      if (!patient.consentHistory && !clinicId)
+      const grant = await this.db.consentGrant.findFirst({
+        where: { patientId, doctorId: actor.id, revokedAt: null, expiresAt: { gt: new Date() } },
+      });
+      if (!patient.consentHistory && !grant && !clinicId)
         throw new ForbiddenException(
           'Choose a clinic. Cross-clinic history requires patient consent.',
         );
@@ -119,7 +123,14 @@ export class ClinicalService {
       };
     });
   }
-  async sign(actor: Actor, id: string) {
+  async sign(actor: Actor, id: string, pin?: string) {
+    const credential = await this.db.doctorSigningCredential.findUnique({
+      where: { doctorId: actor.id },
+    });
+    if (credential && (!pin || !(await verify(credential.pinHash, pin))))
+      throw new ForbiddenException('A valid six-digit signing PIN is required');
+    if (!credential && process.env.DEMO_MODE !== 'true')
+      throw new ConflictException('Set your signing PIN in Settings before signing');
     return this.db.$transaction(async (tx) => {
       const p = await tx.prescription.findUnique({ where: { id }, include: { appointment: true } });
       if (!p) throw new NotFoundException('Prescription not found');

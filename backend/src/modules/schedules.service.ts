@@ -4,6 +4,7 @@ import { DateTime } from 'luxon';
 import { PrismaService } from '../common/prisma.service';
 import { generateSlots } from './schedule.engine';
 import { activeStatuses } from '../common/domain';
+import { overlaps } from '../common/domain';
 type DB = PrismaService | Prisma.TransactionClient;
 @Injectable()
 export class SchedulesService {
@@ -31,7 +32,7 @@ export class SchedulesService {
       throw new BadRequestException('Choose a date range of up to 31 days');
     const [rules, exceptions, appointments, holds] = await Promise.all([
       tx.doctorScheduleRule.findMany({
-        where: { doctorId, clinicId, ...(type ? { consultationType: type } : {}) },
+        where: { doctorId, clinicId, active: true, ...(type ? { consultationType: type } : {}) },
       }),
       tx.scheduleException.findMany({ where: { doctorId, clinicId } }),
       tx.appointment.findMany({
@@ -52,6 +53,43 @@ export class SchedulesService {
         },
       }),
     ]);
-    return generateSlots(rules, exceptions, [...appointments, ...holds], from, to, clinic.timezone);
+    const roomIds = [...new Set(rules.flatMap((r) => (r.roomId ? [r.roomId] : [])))];
+    const roomBusy = roomIds.length
+      ? await tx.appointment.findMany({
+          where: {
+            roomId: { in: roomIds },
+            doctorId: { not: doctorId },
+            status: { in: [...activeStatuses] as AppointmentStatus[] },
+            startAt: { lt: end.toJSDate() },
+            endAt: { gt: start.toJSDate() },
+          },
+        })
+      : [];
+    const roomHolds = roomIds.length
+      ? await tx.slotHold.findMany({
+          where: {
+            roomId: { in: roomIds },
+            doctorId: { not: doctorId },
+            expiresAt: { gt: new Date() },
+            startAt: { lt: end.toJSDate() },
+            endAt: { gt: start.toJSDate() },
+          },
+        })
+      : [];
+    return generateSlots(
+      rules,
+      exceptions,
+      [...appointments, ...holds],
+      from,
+      to,
+      clinic.timezone,
+    ).map((s) => ({
+      ...s,
+      available:
+        s.available &&
+        ![...roomBusy, ...roomHolds].some(
+          (b) => s.roomId && b.roomId === s.roomId && overlaps(s, b),
+        ),
+    }));
   }
 }

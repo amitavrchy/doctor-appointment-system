@@ -22,6 +22,8 @@ import { paymentProvider } from './payment.providers';
 import { PdfService } from './pdf.service';
 import { AuditService } from '../common/audit.service';
 import { lockDoctors } from '../common/locks/pg-advisory.lock';
+import { issueInvoice, postLedger } from './billing.domain';
+import { notify } from './outbox';
 @Controller('payments')
 export class PaymentsController {
   constructor(
@@ -34,27 +36,70 @@ export class PaymentsController {
     @CurrentUser() actor: Actor,
     @Body() body: unknown,
   ) {
-    const { appointmentId } = parse(z.object({ appointmentId: id }), body);
+    const { appointmentId, billing } = parse(
+      z.object({
+        appointmentId: id,
+        billing: z
+          .object({
+            phone: z.string().min(7).max(20),
+            address: z.string().min(3).max(250),
+            city: z.string().min(2).max(100),
+          })
+          .optional(),
+      }),
+      body,
+    );
     const a = await this.appointments.get(actor, appointmentId);
-    if (['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(a.status))
-      throw new ConflictException('This appointment cannot be paid');
-    const p = a.payment;
-    if (!p) throw new ConflictException('No payment exists');
-    if (!['CREATED', 'REQUIRES_ACTION'].includes(p.status))
-      throw new ConflictException('Payment is already processed');
-    const provider = paymentProvider(p.provider);
-    const intent = await provider.createIntent(p.amountMinor, p.currency, p.idempotencyKey);
-    await this.db.payment.updateMany({
-      where: { id: p.id, status: { in: ['CREATED', 'REQUIRES_ACTION'] } },
-      data: { providerRef: intent.reference, status: 'REQUIRES_ACTION' },
-    });
-    return {
-      ...intent,
-      paymentId: p.id,
-      provider: p.provider,
-      amountMinor: p.amountMinor,
-      currency: p.currency,
-    };
+    return this.db.$transaction(
+      async (tx) => {
+        await lockDoctors(tx, a.doctorId);
+        const p = await tx.payment.findUnique({
+          where: { appointmentId },
+          include: { appointment: true },
+        });
+        if (!p) throw new ConflictException('No payment exists');
+        if (['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(p.appointment.status))
+          throw new ConflictException('This appointment cannot be paid');
+        if (!['CREATED', 'REQUIRES_ACTION'].includes(p.status))
+          throw new ConflictException('Payment is already processed');
+        if (p.checkoutUrl && p.providerRef)
+          return {
+            reference: p.providerRef,
+            checkoutUrl: p.checkoutUrl,
+            paymentId: p.id,
+            provider: p.provider,
+            amountMinor: p.amountMinor,
+            currency: p.currency,
+          };
+        const intent = await paymentProvider(p.provider).createIntent(
+          p.amountMinor,
+          p.currency,
+          p.idempotencyKey,
+          {
+            customerId: a.patientId,
+            customerName: a.patient.fullName,
+            email: a.patient.email,
+            billing,
+          },
+        );
+        await tx.payment.update({
+          where: { id: p.id },
+          data: {
+            providerRef: intent.reference,
+            status: 'REQUIRES_ACTION',
+            ...(intent.checkoutUrl ? { checkoutUrl: intent.checkoutUrl } : {}),
+          },
+        });
+        return {
+          ...intent,
+          paymentId: p.id,
+          provider: p.provider,
+          amountMinor: p.amountMinor,
+          currency: p.currency,
+        };
+      },
+      { timeout: 35000, maxWait: 15000 },
+    );
   }
   @Post(':id/demo-settle') @UseGuards(AuthGuard) async demo(
     @CurrentUser() actor: Actor,
@@ -77,8 +122,25 @@ export class PaymentsController {
         throw new ConflictException('Payment has changed');
       const paid = await tx.payment.update({
         where: { id },
-        data: { status: 'SUCCEEDED', providerRef: p.providerRef || `demo_${p.id}` },
+        data: {
+          status: 'SUCCEEDED',
+          paidAt: new Date(),
+          providerRef: p.providerRef || `demo_${p.id}`,
+        },
       });
+      await postLedger(tx, { ...paid, appointment: p.appointment }, 'CAPTURE');
+      if (p.appointment.status === 'PENDING_PAYMENT')
+        await tx.appointment.update({
+          where: { id: p.appointmentId },
+          data: { status: 'CONFIRMED' },
+        });
+      await notify(
+        tx,
+        p.appointment.patientId,
+        'Payment completed',
+        'Your payment is complete. View your invoice in Payments & invoices.',
+        p.appointment.clinicId,
+      );
       await tx.auditLog.create({
         data: {
           actorId: actor.id,
@@ -125,6 +187,13 @@ export class PaymentsController {
           ? { status: 'REFUND_PENDING', refundMinor: p.amountMinor }
           : { status: 'SUCCEEDED' },
       });
+      await postLedger(tx, p, 'CAPTURE');
+      await tx.payment.update({ where: { id: p.id }, data: { paidAt: p.paidAt || new Date() } });
+      if (p.appointment.status === 'PENDING_PAYMENT')
+        await tx.appointment.update({
+          where: { id: p.appointmentId },
+          data: { status: 'CONFIRMED' },
+        });
       return { received: true };
     });
   }
@@ -136,13 +205,16 @@ export class PaymentsController {
     const a = await this.appointments.get(actor, id);
     const p = a.payment;
     if (!p) throw new ConflictException('No invoice exists');
+    const invoice = await this.db.$transaction((tx) => issueInvoice(tx, a));
     const data = await this.pdf.render('Consultation invoice', [
-      `Invoice: ${p.id}`,
+      `Invoice: ${invoice.number}`,
       `Patient: ${a.patient.fullName}`,
       `Clinic: ${a.clinic.name}`,
       `Doctor: ${a.doctor.user.fullName}`,
       `Date: ${a.startAt.toISOString()}`,
       `Amount: ${(p.amountMinor / 100).toFixed(2)} ${p.currency}`,
+      `Subtotal: ${(invoice.subtotalMinor / 100).toFixed(2)} ${p.currency}`,
+      `Tax: ${(invoice.taxMinor / 100).toFixed(2)} ${p.currency}`,
       `Payment status: ${p.status}`,
       `Refund: ${(p.refundMinor / 100).toFixed(2)} ${p.currency}`,
     ]);

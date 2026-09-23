@@ -84,6 +84,10 @@ suite('PostgreSQL booking and clinic boundaries', () => {
     });
   });
   async function clear() {
+    await db.invoice.deleteMany({ where: { appointment: { clinicId } } });
+    await db.appointmentConflict.deleteMany({ where: { appointment: { clinicId } } });
+    await db.ledgerEntry.deleteMany({ where: { clinicId } });
+    await db.outboxEvent.deleteMany({ where: { clinicId } });
     await db.attachment.deleteMany({ where: { appointment: { clinicId } } });
     await db.vital.deleteMany({ where: { appointment: { clinicId } } });
     await db.refreshSession.deleteMany({ where: { userId: { in: actors.map((a) => a.id) } } });
