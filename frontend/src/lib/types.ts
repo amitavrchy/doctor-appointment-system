@@ -18,6 +18,11 @@ export type Clinic = {
   slug: string;
   address: string;
   timezone: string;
+  fullRefundHours?: number;
+  partialRefundHours?: number;
+  partialRefundPercent?: number;
+  taxBasisPoints?: number;
+  allowPayLater?: boolean;
   rooms: { id: string; name: string }[];
   _count?: { doctors: number };
 };
@@ -74,6 +79,12 @@ export type Appointment = {
   endAt: string;
   feeMinor: number;
   reason: string | null;
+  refundPolicy?: {
+    fullRefundHours: number;
+    partialRefundHours: number;
+    partialRefundPercent: number;
+    allowPayLater: boolean;
+  } | null;
   payment: Payment | null;
   teleSession: { id: string; status: string } | null;
   notes?: Note[];
@@ -86,7 +97,21 @@ export type Slot = {
   type: string;
   available: boolean;
 };
-export type Hold = { id: string; expiresAt: string; feeMinor: number; startAt: string };
+export type Hold = {
+  id: string;
+  expiresAt: string;
+  feeMinor: number;
+  startAt: string;
+  baseFeeMinor?: number | null;
+  taxMinor?: number;
+  addons?: { id: string; name: string; feeMinor: number }[];
+  refundPolicy?: {
+    fullRefundHours: number;
+    partialRefundHours: number;
+    partialRefundPercent: number;
+    allowPayLater: boolean;
+  } | null;
+};
 export type Notification = {
   id: string;
   title: string;
@@ -95,6 +120,15 @@ export type Notification = {
   createdAt: string;
 };
 export type Summary = {
+  utilization: {
+    doctorId: string;
+    name: string;
+    scheduledMinutes: number;
+    bookedMinutes: number;
+    percent: number;
+  }[];
+  utilizationFrom: string;
+  utilizationTo: string;
   total: number;
   completed: number;
   noShow: number;
