@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon';
+import { generateSlots } from './schedule.engine';
 import {
   Body,
   Controller,
@@ -96,9 +98,64 @@ export class OperationsController {
       where: { clinicId, ...(doctor ? { doctorId: actor.id } : {}) },
       include: { payment: true },
     });
+    const clinic = await this.db.clinic.findUniqueOrThrow({ where: { id: clinicId } });
+    const from = DateTime.now().setZone(clinic.timezone).minus({ days: 6 }).startOf('day'),
+      to = from.plus({ days: 6 }).endOf('day');
+    const [rules, exceptions, doctors] = await Promise.all([
+      this.db.doctorScheduleRule.findMany({
+        where: { clinicId, active: true, ...(doctor ? { doctorId: actor.id } : {}) },
+      }),
+      this.db.scheduleException.findMany({ where: { clinicId } }),
+      this.db.doctorClinic.findMany({
+        where: { clinicId, ...(doctor ? { doctorId: actor.id } : {}) },
+        include: { doctor: { include: { user: { select: { fullName: true } } } } },
+      }),
+    ]);
+    const unionMinutes = (windows: { startAt: Date; endAt: Date }[]) => {
+      const sorted = windows
+        .map((w) => [
+          Math.max(w.startAt.getTime(), from.toMillis()),
+          Math.min(w.endAt.getTime(), to.toMillis()),
+        ])
+        .filter((w) => w[1] > w[0])
+        .sort((a, b) => a[0] - b[0]);
+      let total = 0,
+        end = 0;
+      for (const w of sorted) {
+        total += Math.max(0, w[1] - Math.max(w[0], end));
+        end = Math.max(end, w[1]);
+      }
+      return total / 60000;
+    };
+    const utilization = doctors.map((d) => {
+      const slots = generateSlots(
+        rules.filter((r) => r.doctorId === d.doctorId),
+        exceptions.filter((e) => e.doctorId === d.doctorId),
+        [],
+        from.toISODate()!,
+        to.toISODate()!,
+        clinic.timezone,
+        new Date(0),
+      );
+      const scheduledMinutes = unionMinutes(slots),
+        bookedMinutes = unionMinutes(
+          appointments.filter(
+            (a) =>
+              a.doctorId === d.doctorId &&
+              !['CANCELLED', 'RESCHEDULED', 'PENDING_PAYMENT'].includes(a.status),
+          ),
+        );
+      return {
+        doctorId: d.doctorId,
+        name: d.doctor.user.fullName,
+        scheduledMinutes,
+        bookedMinutes,
+        percent: scheduledMinutes ? Math.round((bookedMinutes / scheduledMinutes) * 1000) / 10 : 0,
+      };
+    });
     const completed = appointments.filter((a) => a.status === 'COMPLETED').length;
     const noShow = appointments.filter((a) => a.status === 'NO_SHOW').length;
-    const checked = appointments.filter((a) => a.checkedInAt);
+    const checked = appointments.filter((a) => a.checkedInAt && a.startedAt);
     const revenue = appointments.reduce(
       (sum, a) =>
         sum +
@@ -110,7 +167,7 @@ export class OperationsController {
     const byDay = Array.from({ length: 7 }, (_, index) => {
       const d = new Date(Date.now() - (6 - index) * 86400000);
       const date = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Dhaka',
+        timeZone: clinic.timezone,
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -120,7 +177,7 @@ export class OperationsController {
         count: appointments.filter(
           (a) =>
             new Intl.DateTimeFormat('en-CA', {
-              timeZone: 'Asia/Dhaka',
+              timeZone: clinic.timezone,
               year: 'numeric',
               month: '2-digit',
               day: '2-digit',
@@ -129,6 +186,9 @@ export class OperationsController {
       };
     });
     return {
+      utilization,
+      utilizationFrom: from.toISODate(),
+      utilizationTo: to.toISODate(),
       total: appointments.length,
       completed,
       noShow,
@@ -136,7 +196,7 @@ export class OperationsController {
       noShowRate: appointments.length ? (noShow / appointments.length) * 100 : 0,
       averageWaitMinutes: checked.length
         ? checked.reduce(
-            (s, a) => s + Math.max(0, (a.checkedInAt!.getTime() - a.startAt.getTime()) / 60000),
+            (s, a) => s + Math.max(0, (a.startedAt!.getTime() - a.checkedInAt!.getTime()) / 60000),
             0,
           ) / checked.length
         : 0,

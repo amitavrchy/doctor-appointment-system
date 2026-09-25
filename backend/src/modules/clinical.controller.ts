@@ -83,6 +83,12 @@ export class ClinicalController {
   @Get('prescriptions/verify/:code') verify(@Param('code') code: string) {
     return this.clinical.verify(code);
   }
+  @Post('prescriptions/:id/dispensed') @UseGuards(AuthGuard) dispensed(
+    @CurrentUser() actor: Actor,
+    @Param('id') id: string,
+  ) {
+    return this.clinical.dispensed(actor, id);
+  }
   @Get('prescriptions/:id/pdf') @UseGuards(AuthGuard) async download(
     @CurrentUser() actor: Actor,
     @Param('id') id: string,

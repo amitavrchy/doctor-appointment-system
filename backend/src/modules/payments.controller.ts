@@ -1,5 +1,7 @@
+import { RealtimeGateway } from './realtime.gateway';
 import {
   Body,
+  Optional,
   Controller,
   Get,
   Post,
@@ -31,6 +33,7 @@ export class PaymentsController {
     private appointments: AppointmentsService,
     private pdf: PdfService,
     private audit: AuditService,
+    @Optional() private realtime?: RealtimeGateway,
   ) {}
   @Post('intent') @UseGuards(AuthGuard) async intent(
     @CurrentUser() actor: Actor,
@@ -172,30 +175,46 @@ export class PaymentsController {
       initial.currency !== event.currency
     )
       throw new BadRequestException('Webhook payment mismatch');
-    return this.db.$transaction(async (tx) => {
-      await lockDoctors(tx, initial.appointment.doctorId);
-      if (await tx.webhookEvent.findUnique({ where: { id: event.eventId } }))
-        return { received: true };
-      const p = await tx.payment.findUniqueOrThrow({
-        where: { id: initial.id },
-        include: { appointment: true },
-      });
-      await tx.webhookEvent.create({ data: { id: event.eventId } });
-      await tx.payment.updateMany({
-        where: { id: p.id, status: { in: ['CREATED', 'REQUIRES_ACTION'] } },
-        data: ['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(p.appointment.status)
-          ? { status: 'REFUND_PENDING', refundMinor: p.amountMinor }
-          : { status: 'SUCCEEDED' },
-      });
-      await postLedger(tx, p, 'CAPTURE');
-      await tx.payment.update({ where: { id: p.id }, data: { paidAt: p.paidAt || new Date() } });
-      if (p.appointment.status === 'PENDING_PAYMENT')
-        await tx.appointment.update({
-          where: { id: p.appointmentId },
-          data: { status: 'CONFIRMED' },
+    return this.db
+      .$transaction(async (tx) => {
+        await lockDoctors(tx, initial.appointment.doctorId);
+        if (await tx.webhookEvent.findUnique({ where: { id: event.eventId } }))
+          return { received: true };
+        const p = await tx.payment.findUniqueOrThrow({
+          where: { id: initial.id },
+          include: { appointment: true },
         });
-      return { received: true };
-    });
+        await tx.webhookEvent.create({ data: { id: event.eventId } });
+        const changed = await tx.payment.updateMany({
+          where: {
+            id: p.id,
+            status: { in: ['CREATED', 'REQUIRES_ACTION', 'FAILED', 'CANCELLED'] },
+          },
+          data: ['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(p.appointment.status)
+            ? { status: 'REFUND_PENDING', refundMinor: p.amountMinor }
+            : { status: 'SUCCEEDED' },
+        });
+        if (changed.count)
+          await notify(
+            tx,
+            p.appointment.patientId,
+            'Payment verified',
+            'Your payment is verified. View your invoice in Payments & invoices.',
+            p.appointment.clinicId,
+          );
+        await postLedger(tx, p, 'CAPTURE');
+        await tx.payment.update({ where: { id: p.id }, data: { paidAt: p.paidAt || new Date() } });
+        if (p.appointment.status === 'PENDING_PAYMENT')
+          await tx.appointment.update({
+            where: { id: p.appointmentId },
+            data: { status: 'CONFIRMED' },
+          });
+        return { received: true };
+      })
+      .then((result) => {
+        this.realtime?.appointmentUpdated(initial.appointment);
+        return result;
+      });
   }
   @Get(':appointmentId/invoice') @UseGuards(AuthGuard) async invoice(
     @CurrentUser() actor: Actor,

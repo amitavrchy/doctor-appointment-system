@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { hash, argon2id } from 'argon2';
 import { DateTime } from 'luxon';
+import { seedAdvanced } from './seed-advanced';
 const db = new PrismaClient();
 async function main() {
   if (process.env.DEMO_MODE !== 'true') throw new Error('Demo seed requires DEMO_MODE=true');
@@ -258,6 +259,7 @@ async function main() {
     },
     update: {},
   });
+  await seedAdvanced(db);
   console.log(
     'Seed complete: 2 clinics, 5 doctors, 21 patients, staff, schedules and synthetic care history.',
   );

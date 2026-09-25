@@ -219,4 +219,28 @@ export class ClinicalService {
     });
     return { ok: true };
   }
+  async dispensed(actor: Actor, id: string) {
+    const p = await this.prescription(actor, id);
+    if (actor.id !== p.doctorId) throw new ForbiddenException('Prescribing doctor required');
+    if (p.expiresAt && p.expiresAt < new Date())
+      throw new ConflictException('This prescription has expired');
+    assertTransition('prescription', p.status, 'DISPENSED_EXTERNAL');
+    return this.db.$transaction(async (tx) => {
+      const changed = await tx.prescription.updateMany({
+        where: { id, status: 'SIGNED' },
+        data: { status: 'DISPENSED_EXTERNAL' },
+      });
+      if (!changed.count) throw new ConflictException('Prescription changed');
+      await tx.auditLog.create({
+        data: {
+          actorId: actor.id,
+          clinicId: p.appointment.clinicId,
+          action: 'PRESCRIPTION_DISPENSED_EXTERNAL',
+          entity: 'Prescription',
+          entityId: id,
+        },
+      });
+      return { ok: true };
+    });
+  }
 }

@@ -27,11 +27,9 @@ export class SafeErrorFilter implements ExceptionFilter {
     console.error(
       `API operation failed (${error instanceof Error ? error.name : 'UnknownError'}). Request bodies and clinical content are omitted.`,
     );
-    response
-      .status(500)
-      .json({
-        statusCode: 500,
-        message: 'The operation could not be completed. Please try again.',
-      });
+    response.status(500).json({
+      statusCode: 500,
+      message: 'The operation could not be completed. Please try again.',
+    });
   }
 }

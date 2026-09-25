@@ -1,3 +1,4 @@
+import { TelemedicineController } from '../src/modules/telemedicine.controller';
 import 'dotenv/config';
 import { beforeAll, beforeEach, afterAll, afterEach, describe, it, expect, vi } from 'vitest';
 import { hash, argon2id } from 'argon2';
@@ -32,6 +33,7 @@ suite('advanced clinical, scheduling, finance and security boundaries', () => {
       refreshQueue: async () => {},
       disconnectUser: () => {},
       holdExpiring: () => {},
+      message: () => {},
     } as unknown as RealtimeGateway;
   const schedules = new SchedulesService(db),
     appointments = new AppointmentsService(db, schedules, gateway),
@@ -646,5 +648,60 @@ suite('advanced clinical, scheduling, finance and security boundaries', () => {
       }),
     ).rejects.toThrow('rollback');
     expect(await db.outboxEvent.count({ where: { userId: patients[0].id } })).toBe(1);
+  });
+  it('schedule impact preview rolls back changes and creates no conflict records', async () => {
+    const a = await book();
+    const rule = await db.doctorScheduleRule.findFirstOrThrow({
+      where: { doctorId: doctor.id, clinicId },
+    });
+    const result = await management.preview(doctor, {
+      ruleId: rule.id,
+      rule: {
+        doctorId: doctor.id,
+        clinicId,
+        rrule: rule.rrule,
+        startTimeLocal: '14:00',
+        endTimeLocal: '16:00',
+        slotDurationMinutes: 30,
+        bufferMinutes: 0,
+        consultationType: 'IN_PERSON',
+        feeMinor: rule.feeMinor,
+        roomId: rule.roomId,
+        effectiveFrom: rule.effectiveFrom.toISOString(),
+        effectiveTo: null,
+      },
+    });
+    expect(result?.conflicts.map((c) => c.id)).toContain(a.id);
+    expect(
+      (await db.doctorScheduleRule.findUniqueOrThrow({ where: { id: rule.id } })).startTimeLocal,
+    ).toBe(rule.startTimeLocal);
+    expect(await db.appointmentConflict.count({ where: { appointmentId: a.id } })).toBe(0);
+  });
+  it('consultation chat requires participants, the room time window and an open session', async () => {
+    const a = await book();
+    await db.appointment.update({
+      where: { id: a.id },
+      data: {
+        type: 'TELEMEDICINE',
+        startAt: new Date(Date.now() - 60000),
+        endAt: new Date(Date.now() + 29 * 60000),
+        teleSession: { create: { provider: 'demo', roomName: `chat-${a.id}`, status: 'WAITING' } },
+      },
+    });
+    const tele = new TelemedicineController(db, appointments, gateway);
+    const message = await tele.message(patients[0], a.id, {
+      text: 'Synthetic consultation message',
+    });
+    expect((await tele.messages(doctor, a.id))[0].id).toBe(message.id);
+    await expect(tele.messages(patients[1], a.id)).rejects.toThrow();
+    await db.telemedicineSession.update({
+      where: { appointmentId: a.id },
+      data: { status: 'ENDED' },
+    });
+    await expect(tele.message(doctor, a.id, { text: 'Another message' })).rejects.toThrow(
+      'Open the waiting room',
+    );
+    await db.appointment.update({ where: { id: a.id }, data: { status: 'PENDING_PAYMENT' } });
+    await expect(tele.token(patients[0], a.id, {})).rejects.toThrow('No active');
   });
 });

@@ -1,3 +1,4 @@
+import { recurrenceDates } from '../src/modules/recurrence';
 import { describe, it, expect } from 'vitest';
 import { assertTransition, refundAmount, overlaps } from '../src/common/domain';
 import { generateSlots } from '../src/modules/schedule.engine';
@@ -154,5 +155,54 @@ describe('virtual recurring schedule expansion', () => {
         new Date('2026-08-04'),
       ),
     ).toEqual([]);
+  });
+});
+
+describe('advanced recurrence', () => {
+  it('anchors alternate weeks instead of matching every weekday', () => {
+    expect([
+      ...recurrenceDates(
+        'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO',
+        new Date('2026-08-03T00:00:00Z'),
+        '2026-08-01',
+        '2026-08-31',
+        'Asia/Dhaka',
+      ),
+    ]).toEqual(['2026-08-03', '2026-08-17', '2026-08-31']);
+  });
+  it('supports a monthly ordinal weekday', () => {
+    expect([
+      ...recurrenceDates(
+        'FREQ=MONTHLY;BYDAY=1MO',
+        new Date('2026-08-01'),
+        '2026-08-01',
+        '2026-09-30',
+        'Asia/Dhaka',
+      ),
+    ]).toEqual(['2026-08-03', '2026-09-07']);
+  });
+  it('custom hours open an otherwise non-recurring day and never restore archived rules', () => {
+    const exceptions = [
+      {
+        dateLocal: new Date('2026-08-04'),
+        type: 'CUSTOM_HOURS',
+        startTimeLocal: '14:00',
+        endTimeLocal: '15:00',
+      },
+    ];
+    expect(
+      generateSlots([rule], exceptions, [], '2026-08-04', '2026-08-04', 'Asia/Dhaka', now),
+    ).toHaveLength(1);
+    expect(
+      generateSlots(
+        [{ ...rule, active: false }],
+        exceptions,
+        [],
+        '2026-08-04',
+        '2026-08-04',
+        'Asia/Dhaka',
+        now,
+      ),
+    ).toHaveLength(0);
   });
 });

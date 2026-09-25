@@ -87,7 +87,7 @@ export class AuthService {
       where: { tokenHash: digest(token) },
     });
     await this.db.refreshSession.deleteMany({ where: { tokenHash: digest(token) } });
-    return session?.userId;
+    return session?.id;
   }
   me(actor: Actor) {
     return this.db.user.findUnique({

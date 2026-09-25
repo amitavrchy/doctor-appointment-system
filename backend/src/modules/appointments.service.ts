@@ -328,7 +328,7 @@ export class AppointmentsService {
       { timeout: 15000, maxWait: 30000 },
     );
     this.realtime.appointmentUpdated(result);
-    void this.realtime.refreshQueue?.(result.doctorId, result.clinicId);
+    void this.realtime.refreshQueue?.(result.doctorId, result.clinicId).catch(() => undefined);
     return result;
   }
   async transition(actor: Actor, id: string, status: AppointmentStatus, reason?: string) {
@@ -424,7 +424,7 @@ export class AppointmentsService {
       return result;
     });
     this.realtime.appointmentUpdated(result);
-    void this.realtime.refreshQueue?.(result.doctorId, result.clinicId);
+    void this.realtime.refreshQueue?.(result.doctorId, result.clinicId).catch(() => undefined);
     return result;
   }
 }

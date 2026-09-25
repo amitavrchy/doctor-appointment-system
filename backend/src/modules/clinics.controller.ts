@@ -120,7 +120,7 @@ export class ClinicsController {
   ) {
     const i = parse(
       z.object({
-        userId: id,
+        email: z.email(),
         clinicId: id,
         specialties: z.array(z.string().min(1).max(80)).min(1).max(10),
         licenseNumber: z.string().min(3).max(80),
@@ -132,11 +132,15 @@ export class ClinicsController {
       body,
     );
     requireRole(actor, i.clinicId, ['CLINIC_ADMIN']);
+    const user = await this.db.user.findFirst({
+      where: { email: i.email.toLowerCase(), deletedAt: null },
+    });
+    if (!user) throw new BadRequestException('Ask the doctor to register with this email first');
     return this.db.$transaction(async (tx) => {
       await tx.doctorProfile.upsert({
-        where: { userId: i.userId },
+        where: { userId: user.id },
         create: {
-          userId: i.userId,
+          userId: user.id,
           specialties: i.specialties,
           licenseNumber: i.licenseNumber,
           bio: i.bio,
@@ -145,14 +149,14 @@ export class ClinicsController {
         update: {},
       });
       await tx.userClinicRole.upsert({
-        where: { userId_clinicId_role: { userId: i.userId, clinicId: i.clinicId, role: 'DOCTOR' } },
-        create: { userId: i.userId, clinicId: i.clinicId, role: 'DOCTOR' },
+        where: { userId_clinicId_role: { userId: user.id, clinicId: i.clinicId, role: 'DOCTOR' } },
+        create: { userId: user.id, clinicId: i.clinicId, role: 'DOCTOR' },
         update: {},
       });
       return tx.doctorClinic.upsert({
-        where: { doctorId_clinicId: { doctorId: i.userId, clinicId: i.clinicId } },
+        where: { doctorId_clinicId: { doctorId: user.id, clinicId: i.clinicId } },
         create: {
-          doctorId: i.userId,
+          doctorId: user.id,
           clinicId: i.clinicId,
           feeMinor: i.feeMinor,
           teleFeeMinor: i.teleFeeMinor,

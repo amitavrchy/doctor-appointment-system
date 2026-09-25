@@ -35,7 +35,7 @@ export class ReconciliationService {
         include: { appointment: true },
       });
       let changed = false;
-      if (['CREATED', 'REQUIRES_ACTION'].includes(p.status)) {
+      if (['CREATED', 'REQUIRES_ACTION', 'FAILED', 'CANCELLED'].includes(p.status)) {
         const cancelled = ['CANCELLED', 'RESCHEDULED', 'NO_SHOW'].includes(p.appointment.status);
         await tx.payment.update({
           where: { id: p.id },

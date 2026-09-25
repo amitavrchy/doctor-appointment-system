@@ -75,8 +75,8 @@ export class AuthController {
     );
   }
   @Post('logout') async logout(@Req() req: AuthRequest, @Res({ passthrough: true }) res: Response) {
-    const userId = await this.auth.logout(req.cookies?.refresh || '');
-    if (userId) this.realtime.disconnectUser(userId);
+    const sessionId = await this.auth.logout(req.cookies?.refresh || '');
+    if (sessionId) this.realtime.disconnectSession(sessionId);
     res.clearCookie('access', { path: '/' });
     res.clearCookie('refresh', { path: '/' });
     return { ok: true };
@@ -162,10 +162,14 @@ export class AuthController {
       orderBy: { createdAt: 'desc' },
     });
   }
-  @Delete('sessions/:id') @UseGuards(AuthGuard) revoke(
+  @Delete('sessions/:id') @UseGuards(AuthGuard) async revoke(
     @CurrentUser() actor: Actor,
     @Param('id') sessionId: string,
   ) {
-    return this.db.refreshSession.deleteMany({ where: { id: sessionId, userId: actor.id } });
+    const result = await this.db.refreshSession.deleteMany({
+      where: { id: sessionId, userId: actor.id },
+    });
+    if (result.count) this.realtime.disconnectSession(sessionId);
+    return result;
   }
 }

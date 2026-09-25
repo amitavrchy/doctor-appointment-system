@@ -16,6 +16,7 @@ import { PrismaService } from '../common/prisma.service';
 import { AppointmentsService } from './appointments.service';
 import { assertTransition } from '../common/domain';
 import { RealtimeGateway } from './realtime.gateway';
+import { lockDoctors } from '../common/locks/pg-advisory.lock';
 @Controller('telemedicine')
 @UseGuards(AuthGuard)
 export class TelemedicineController {
@@ -37,6 +38,45 @@ export class TelemedicineController {
   }
   @Get(':id') async get(@CurrentUser() actor: Actor, @Param('id') id: string) {
     return (await this.session(actor, id)).teleSession;
+  }
+  @Get(':id/messages') async messages(@CurrentUser() actor: Actor, @Param('id') id: string) {
+    await this.session(actor, id);
+    const messages = await this.db.consultationMessage.findMany({
+      where: { appointmentId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return messages.reverse();
+  }
+  @Post(':id/messages') async message(
+    @CurrentUser() actor: Actor,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const { text } = parse(z.object({ text: z.string().trim().min(1).max(2000) }), body);
+    const a = await this.session(actor, id);
+    if (
+      a.startAt.getTime() - Date.now() > 15 * 60000 ||
+      Date.now() > a.endAt.getTime() + 60 * 60000
+    )
+      throw new ConflictException('Chat opens with your consultation room');
+    const message = await this.db.$transaction(async (tx) => {
+      await lockDoctors(tx, a.doctorId);
+      const current = await tx.appointment.findUniqueOrThrow({
+        where: { id },
+        include: { teleSession: true },
+      });
+      if (
+        !['CONFIRMED', 'CHECKED_IN', 'IN_PROGRESS'].includes(current.status) ||
+        !['WAITING', 'LIVE'].includes(current.teleSession?.status || '')
+      )
+        throw new ConflictException('Open the waiting room before sending a message');
+      return tx.consultationMessage.create({
+        data: { appointmentId: id, authorId: actor.id, text },
+      });
+    });
+    this.realtime.message(a.patientId, a.doctorId, id);
+    return message;
   }
   @Post(':id/token') async token(
     @CurrentUser() actor: Actor,
