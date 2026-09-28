@@ -2,6 +2,12 @@
 
 Next.js App Router application with patient, doctor and clinic operations workspaces. All frontend configuration, browser tests, screenshots and dependencies live in this folder.
 
+![Patient workspace](docs/images/overview.png)
+
+The application includes role-aware overviews, FullCalendar month/week/day views, a live clinic queue, recurring availability with impact previews, clinical templates, care plans, laboratory results, referrals, private consultation chat, finance and device/consent controls. Visible text starts at 14px. Layouts adapt to mobile, dialogs manage keyboard focus, and animations respect reduced-motion preferences.
+
+![Clinic finance workspace](docs/images/finance.png)
+
 ```powershell
 cd frontend
 npm ci
