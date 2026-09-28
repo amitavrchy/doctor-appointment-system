@@ -82,6 +82,7 @@ export function Workspace({ section }: { section: string }) {
     if (user.data) {
       const socket = io('/ws', {
         path: '/api/socket.io',
+        addTrailingSlash: false,
         transports: ['polling'],
         withCredentials: true,
       });
