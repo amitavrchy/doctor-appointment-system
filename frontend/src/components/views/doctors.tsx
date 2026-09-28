@@ -141,18 +141,20 @@ export function BookingModal({
   user,
   onClose,
   initialClinic = '',
+  initialDate,
   reschedule,
 }: {
   doctor: Doctor;
   user: User;
   onClose: () => void;
   initialClinic?: string;
+  initialDate?: string;
   reschedule?: Appointment;
 }) {
   const toast = useToast(),
     client = useQueryClient();
   const [clinicId, setClinicId] = useState(initialClinic || doctor.memberships[0]?.clinicId || ''),
-    [day, setDay] = useState(localDate(1)),
+    [day, setDay] = useState(initialDate || localDate(1)),
     [type, setType] = useState(reschedule?.type || 'IN_PERSON'),
     [startAt, setStartAt] = useState(''),
     [patientId, setPatientId] = useState(reschedule?.patientId || user.id),
@@ -162,14 +164,30 @@ export function BookingModal({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [done, setDone] = useState(false),
+    [needsPayment, setNeedsPayment] = useState(false),
+    [addonIds, setAddonIds] = useState<string[]>([]),
+    [paymentMethod, setPaymentMethod] = useState(''),
     [now, setNow] = useState(Date.now());
   const { hold, setHold } = useHold();
   const key = useRef(crypto.randomUUID());
   const staff =
     user.globalRole === 'SUPER_ADMIN' ||
     user.roles.some(
-      (r) => r.clinicId === clinicId && ['RECEPTIONIST', 'CLINIC_ADMIN'].includes(r.role),
+      (r) =>
+        r.clinicId === clinicId &&
+        (['RECEPTIONIST', 'CLINIC_ADMIN'].includes(r.role) ||
+          (r.role === 'DOCTOR' && doctor.userId === user.id)),
     );
+  const services = useQuery({
+    queryKey: ['clinic-services', clinicId],
+    queryFn: () =>
+      api<{ id: string; name: string; feeMinor: number }[]>(`/clinics/${clinicId}/services`),
+    enabled: !!clinicId,
+  });
+  const providers = useQuery({
+    queryKey: ['payment-providers'],
+    queryFn: () => api<{ name: string; label: string }[]>('/payments/providers'),
+  });
   const patients = useQuery({
     queryKey: ['patients', clinicId],
     queryFn: () => api<{ id: string; fullName: string }[]>(`/patients?clinicId=${clinicId}`),
@@ -208,6 +226,7 @@ export function BookingModal({
         clinicId,
         startAt,
         type,
+        addonIds,
         ...(staff ? { patientId } : {}),
       });
       setHold(h);
@@ -225,11 +244,17 @@ export function BookingModal({
     setBusy(true);
     setError('');
     try {
-      await post(
+      const booked = await post<{ status: string }>(
         reschedule ? `/appointments/${reschedule.id}/reschedule` : '/appointments',
-        { holdId: hold.id, ...(!reschedule ? { reason } : {}) },
+        {
+          holdId: hold.id,
+          ...(!reschedule
+            ? { reason, paymentProvider: paymentMethod || providers.data?.[0]?.name }
+            : {}),
+        },
         key.current,
       );
+      setNeedsPayment(booked.status === 'PENDING_PAYMENT');
       setDone(true);
       setHold(null);
       await client.invalidateQueries({ queryKey: ['appointments'] });
@@ -276,9 +301,11 @@ export function BookingModal({
       {done ? (
         <div className="empty">
           <CheckCircle2 size={54} color="#0d776e" />
-          <h3>See you soon.</h3>
+          <h3>{needsPayment ? 'Your visit is reserved.' : 'See you soon.'}</h3>
           <p>
-            Your appointment is saved. You can pay, reschedule, or view details from Appointments.
+            {needsPayment
+              ? 'Complete payment within 15 minutes to confirm your visit.'
+              : 'Your appointment is saved. You can pay, reschedule, or view details from Appointments.'}
           </p>
           <button className="button primary" onClick={() => void close()}>
             Back to your care
@@ -303,6 +330,7 @@ export function BookingModal({
                     value={clinicId}
                     onChange={(e) => {
                       setClinicId(e.target.value);
+                      setAddonIds([]);
                       setStartAt('');
                     }}
                   >
@@ -426,6 +454,29 @@ export function BookingModal({
                   No slots on this date. Try another day or join the waitlist.
                 </div>
               )}
+              {!!services.data?.length && (
+                <section className="booking-addons">
+                  <h3>Optional clinic services</h3>
+                  <p className="small">Add only services appropriate for your planned visit.</p>
+                  {services.data.map((service) => (
+                    <label className="addon-choice" key={service.id}>
+                      <input
+                        type="checkbox"
+                        checked={addonIds.includes(service.id)}
+                        onChange={(e) =>
+                          setAddonIds(
+                            e.target.checked
+                              ? [...addonIds, service.id]
+                              : addonIds.filter((id) => id !== service.id),
+                          )
+                        }
+                      />
+                      <span>{service.name}</span>
+                      <strong>{money(service.feeMinor)}</strong>
+                    </label>
+                  ))}
+                </section>
+              )}
               {!reschedule && (
                 <label style={{ marginTop: 20 }}>
                   Reason for your visit{' '}
@@ -468,9 +519,40 @@ export function BookingModal({
                 <hr />
                 <div className="detail-line">
                   <span>Consultation fee</span>
+                  <strong>{money(hold.baseFeeMinor ?? hold.feeMinor)}</strong>
+                </div>
+                {(hold.addons || []).map((addon) => (
+                  <div className="detail-line" key={addon.id}>
+                    <span>{addon.name}</span>
+                    <strong>{money(addon.feeMinor)}</strong>
+                  </div>
+                ))}
+                {!!hold.taxMinor && (
+                  <div className="detail-line">
+                    <span>Consultation tax</span>
+                    <strong>{money(hold.taxMinor)}</strong>
+                  </div>
+                )}
+                <div className="detail-line booking-total">
+                  <span>Total due</span>
                   <strong>{money(hold.feeMinor)}</strong>
                 </div>
               </div>
+              {!reschedule && !!providers.data?.length && (
+                <label style={{ marginTop: 20 }}>
+                  Payment method
+                  <select
+                    value={paymentMethod || providers.data[0].name}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  >
+                    {providers.data.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <div className="hold-countdown">
                 <span>
                   <Clock3 size={15} style={{ verticalAlign: 'middle', marginRight: 7 }} />
@@ -481,8 +563,16 @@ export function BookingModal({
                 </strong>
               </div>
               <div className="info-box">
-                Pay after confirming from Payments & invoices. Cancel more than 24 hours before for
-                a full refund; 2–24 hours for 50%; within 2 hours no refund.{' '}
+                {(hold.refundPolicy?.allowPayLater ?? clinic?.allowPayLater) !== false
+                  ? 'Pay after confirmation from Payments & invoices.'
+                  : 'Complete payment within 15 minutes after reserving.'}{' '}
+                Cancel more than{' '}
+                {hold.refundPolicy?.fullRefundHours ?? clinic?.fullRefundHours ?? 24} hours before
+                for a full refund;{' '}
+                {hold.refundPolicy?.partialRefundHours ?? clinic?.partialRefundHours ?? 2}-
+                {hold.refundPolicy?.fullRefundHours ?? clinic?.fullRefundHours ?? 24} hours for{' '}
+                {hold.refundPolicy?.partialRefundPercent ?? clinic?.partialRefundPercent ?? 50}%;
+                later cancellations receive no refund.{' '}
                 {reschedule &&
                   'Your previous payment follows the same refund policy; the new visit is billed separately.'}
               </div>

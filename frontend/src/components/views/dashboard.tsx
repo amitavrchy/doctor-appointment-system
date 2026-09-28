@@ -17,6 +17,7 @@ import {
 import { api, dateLabel, timeLabel } from '@/lib/api';
 import type { Appointment, Doctor, User } from '@/lib/types';
 import { Avatar, Badge, Empty, ErrorState, Loading, PageHeading } from '../ui';
+import { PatientQueue } from '../patient-queue';
 export function Dashboard({ user, clinicId }: { user: User; clinicId?: string }) {
   const appointments = useQuery({
     queryKey: ['appointments', clinicId],
@@ -50,6 +51,7 @@ export function Dashboard({ user, clinicId }: { user: User; clinicId?: string })
           </Link>
         }
       />
+      <PatientQueue />
       <section className="hero">
         <div className="hero-copy">
           <p className="eyebrow">A little care goes a long way</p>

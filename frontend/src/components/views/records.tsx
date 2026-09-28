@@ -37,9 +37,11 @@ export function Records({ user, clinicId }: { user: User; clinicId: string }) {
       ),
   });
   const matches = useQuery({
-    queryKey: ['note-search', searchTerm],
+    queryKey: ['note-search', searchTerm, patientId, clinicId, acrossClinics],
     queryFn: () =>
-      api<{ appointmentId: string }[]>(`/notes/search?q=${encodeURIComponent(searchTerm)}`),
+      api<{ appointmentId: string }[]>(
+        `/notes/search?q=${encodeURIComponent(searchTerm)}&patientId=${encodeURIComponent(patientId)}${acrossClinics ? '' : `&clinicId=${encodeURIComponent(clinicId)}`}`,
+      ),
     enabled: searchTerm.length >= 2,
   });
   const visible =
@@ -52,6 +54,17 @@ export function Records({ user, clinicId }: { user: User; clinicId: string }) {
         eyebrow="Your health story"
         title="A little more connected."
         description="Visits, care notes, and prescriptions. All in one thoughtful timeline."
+        action={
+          <a
+            className="button secondary"
+            target="_blank"
+            rel="noreferrer"
+            href={`/api/clinical/patients/${patientId}/export${acrossClinics ? '' : `?clinicId=${clinicId}`}`}
+          >
+            <Download size={17} />
+            Export care summary
+          </a>
+        }
       />
       {doctor && (
         <label style={{ maxWidth: 330, marginBottom: 24 }}>
@@ -265,7 +278,19 @@ export function Consultation({
     [prescription, setPrescription] = useState<Prescription | null>(null),
     [busy, setBusy] = useState(false),
     [warnings, setWarnings] = useState<string[]>([]),
-    [consent, setConsent] = useState(false);
+    [consent, setConsent] = useState(false),
+    [pin, setPin] = useState('');
+  const templates = useQuery({
+    queryKey: ['templates', appointment.clinicId],
+    queryFn: () =>
+      api<{ id: string; title: string; soap: typeof soap }[]>(
+        `/clinical/templates?clinicId=${appointment.clinicId}`,
+      ),
+  });
+  const signing = useQuery({
+    queryKey: ['signing-status'],
+    queryFn: () => api<{ configured: boolean }>('/clinical/signing-status'),
+  });
   const history = useQuery({
     queryKey: ['history', appointment.patientId, appointment.clinicId],
     queryFn: () =>
@@ -319,6 +344,25 @@ export function Consultation({
         ? Blood group: {patient.data?.bloodGroup || 'Not recorded'}
       </div>
       <h3>SOAP care notes</h3>
+      {!!templates.data?.length && (
+        <label style={{ marginTop: 18 }}>
+          Load a reusable template
+          <select
+            defaultValue=""
+            onChange={(e) => {
+              const t = templates.data?.find((t) => t.id === e.target.value);
+              if (t) setSoap(t.soap);
+            }}
+          >
+            <option value="">Choose a SOAP template</option>
+            {templates.data.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -438,13 +482,29 @@ export function Consultation({
               The signature is a demonstration HMAC, not a regulated digital signature.
             </span>
           </label>
+          {signing.data?.configured && (
+            <label style={{ marginTop: 15 }}>
+              Signing PIN
+              <input
+                type="password"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                maxLength={6}
+                inputMode="numeric"
+                autoComplete="off"
+              />
+            </label>
+          )}
           <button
             className="button primary"
             style={{ marginTop: 15 }}
-            disabled={busy || !consent}
+            disabled={busy || !consent || (!!signing.data?.configured && !/^\d{6}$/.test(pin))}
             onClick={() =>
               run(async () => {
-                const p = await post<Prescription>(`/prescriptions/${prescription.id}/sign`);
+                const p = await post<Prescription>(
+                  `/prescriptions/${prescription.id}/sign`,
+                  pin ? { pin } : {},
+                );
                 setPrescription(p);
                 void client.invalidateQueries({ queryKey: ['history'] });
                 toast('Prescription signed and ready to download.');
@@ -467,6 +527,21 @@ export function Consultation({
             <Download size={16} />
             Prescription PDF
           </a>
+          {prescription.status === 'SIGNED' && (
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await post(`/prescriptions/${prescription.id}/dispensed`);
+                  setPrescription({ ...prescription, status: 'DISPENSED_EXTERNAL' });
+                  toast('External dispensing recorded.');
+                })
+              }
+            >
+              Record external dispensing
+            </button>
+          )}
           {prescription.status === 'SIGNED' && (
             <button
               className="button danger"

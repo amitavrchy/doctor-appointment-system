@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarPlus, Search, CalendarDays, MapPin, Clock3, Video, FileText } from 'lucide-react';
 import { api, post, dateLabel, timeLabel, money, localDate } from '@/lib/api';
@@ -31,6 +31,14 @@ export function Appointments({ user, clinicId }: { user: User; clinicId?: string
     refetchInterval: 30000,
   });
   const doctors = useQuery({ queryKey: ['doctors'], queryFn: () => api<Doctor[]>('/doctors') });
+  useEffect(() => {
+    const appointmentId = new URLSearchParams(window.location.search).get('appointment');
+    if (appointmentId && query.data) {
+      const a = query.data.find((a) => a.id === appointmentId);
+      if (a) setDetail(a);
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [query.data]);
   if (query.isPending) return <Loading />;
   if (query.error) return <ErrorState error={query.error} retry={() => void query.refetch()} />;
   const all = query.data || [],
@@ -283,8 +291,12 @@ export function Appointments({ user, clinicId }: { user: User; clinicId?: string
       {cancel && (
         <Modal title="Cancel your visit?" onClose={() => setCancel(null)}>
           <div className="warning-box">
-            Refunds: more than 24 hours before → 100%; 2–24 hours → 50%; within 2 hours → no refund.
-            Doctor cancellations receive a full refund.
+            Full refund more than {cancel.refundPolicy?.fullRefundHours ?? 24} hours before the
+            visit; {cancel.refundPolicy?.partialRefundPercent ?? 50}% refund between{' '}
+            {cancel.refundPolicy?.partialRefundHours ?? 2} and{' '}
+            {cancel.refundPolicy?.fullRefundHours ?? 24} hours; no refund within{' '}
+            {cancel.refundPolicy?.partialRefundHours ?? 2} hours. Doctor cancellations receive a
+            full refund.
           </div>
           <label style={{ marginTop: 20 }}>
             Reason (optional)

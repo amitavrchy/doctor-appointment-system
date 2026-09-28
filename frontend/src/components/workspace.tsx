@@ -21,6 +21,12 @@ import {
   Building2,
   CalendarClock,
   ChartNoAxesCombined,
+  CalendarRange,
+  Users,
+  ClipboardCheck,
+  FlaskConical,
+  Wallet,
+  ServerCog,
   ShieldCheck,
   X,
 } from 'lucide-react';
@@ -28,24 +34,38 @@ import { api, dateLabel, post } from '@/lib/api';
 import type { User, Clinic } from '@/lib/types';
 import { Avatar, Loading, ErrorState } from './ui';
 import { Dashboard } from './views/dashboard';
+import { StaffDashboard } from './views/staff-dashboard';
+import { AdvancedSchedules } from './views/advanced-schedules';
 import { Doctors } from './views/doctors';
 import { Appointments } from './views/appointments';
 import { Records } from './views/records';
 import { Billing, Telemedicine } from './views/billing-telemedicine';
 import { SettingsView, Notifications, Schedules, Clinics, Analytics } from './views/operations';
 import { useToast } from './providers';
+import { CalendarWorkspace } from './views/calendar';
+import { ClinicQueue } from './views/queue';
+import { CarePlans } from './views/care-plans';
+import { ClinicalStudio } from './views/clinical-studio';
+import { Finance } from './views/finance';
+import { JobMonitor } from './views/jobs';
 const links = [
   ['dashboard', 'Overview', LayoutDashboard],
   ['doctors', 'Find a doctor', Stethoscope],
   ['appointments', 'Appointments', CalendarDays],
+  ['calendar', 'Care calendar', CalendarRange],
   ['records', 'Health records', FolderHeart],
+  ['care-plans', 'Care plans', ClipboardCheck],
+  ['clinical', 'Labs & referrals', FlaskConical],
   ['billing', 'Payments & invoices', Receipt],
   ['telemedicine', 'Telemedicine', Video],
 ] as const;
 const staffLinks = [
+  ['queue', 'Live patient queue', Users],
   ['schedules', 'Schedules', CalendarClock],
   ['clinics', 'Clinic management', Building2],
   ['analytics', 'Analytics', ChartNoAxesCombined],
+  ['finance', 'Clinic finance', Wallet],
+  ['jobs', 'Background jobs', ServerCog],
 ] as const;
 export function Workspace({ section }: { section: string }) {
   const router = useRouter(),
@@ -69,9 +89,16 @@ export function Workspace({ section }: { section: string }) {
         void client.invalidateQueries({ queryKey: ['appointments'] });
         void client.invalidateQueries({ queryKey: ['notifications'] });
         void client.invalidateQueries({ queryKey: ['tele'] });
+        void client.invalidateQueries({ queryKey: ['queue'] });
+        void client.invalidateQueries({ queryKey: ['my-queue'] });
       };
       socket.on('appointment.updated', update);
       socket.on('tele.updated', update);
+      socket.on('queue.updated', update);
+      socket.on('queue.position', update);
+      socket.on('tele.message', () => {
+        void client.invalidateQueries({ queryKey: ['tele-messages'] });
+      });
       return () => {
         socket.disconnect();
       };
@@ -109,7 +136,11 @@ export function Workspace({ section }: { section: string }) {
   }
   const view =
     section === 'dashboard' ? (
-      <Dashboard user={me} clinicId={isStaff ? selectedClinic : undefined} />
+      isStaff ? (
+        <StaffDashboard user={me} clinicId={selectedClinic} />
+      ) : (
+        <Dashboard user={me} />
+      )
     ) : section === 'doctors' ? (
       <Doctors user={me} />
     ) : section === 'appointments' ? (
@@ -120,12 +151,24 @@ export function Workspace({ section }: { section: string }) {
       <Billing user={me} clinicId={isStaff ? selectedClinic : undefined} />
     ) : section === 'telemedicine' ? (
       <Telemedicine user={me} clinicId={isStaff ? selectedClinic : undefined} />
+    ) : section === 'calendar' ? (
+      <CalendarWorkspace user={me} clinicId={isStaff ? selectedClinic : undefined} />
+    ) : section === 'queue' && isStaff ? (
+      <ClinicQueue user={me} clinicId={selectedClinic} />
+    ) : section === 'care-plans' ? (
+      <CarePlans user={me} clinicId={selectedClinic} />
+    ) : section === 'clinical' ? (
+      <ClinicalStudio user={me} clinicId={selectedClinic} />
+    ) : section === 'finance' && admin ? (
+      <Finance clinicId={selectedClinic} />
+    ) : section === 'jobs' && me.globalRole === 'SUPER_ADMIN' ? (
+      <JobMonitor />
     ) : section === 'settings' ? (
       <SettingsView user={me} />
     ) : section === 'notifications' ? (
       <Notifications />
     ) : section === 'schedules' && (admin || clinician) ? (
-      <Schedules user={me} clinicId={selectedClinic} />
+      <AdvancedSchedules user={me} clinicId={selectedClinic} />
     ) : section === 'clinics' && admin ? (
       <Clinics user={me} clinics={clinics.data || []} />
     ) : section === 'analytics' && (admin || clinician) ? (
@@ -173,7 +216,17 @@ export function Workspace({ section }: { section: string }) {
             <>
               <p className="nav-label">CLINIC WORKSPACE</p>
               {staffLinks
-                .filter(([key]) => (key === 'clinics' ? admin : admin || clinician))
+                .filter(([key]) =>
+                  key === 'jobs'
+                    ? me.globalRole === 'SUPER_ADMIN'
+                    : key === 'finance'
+                      ? admin
+                      : key === 'queue'
+                        ? isStaff
+                        : key === 'clinics'
+                          ? admin
+                          : admin || clinician,
+                )
                 .map(([key, label, Icon]) => (
                   <Link
                     key={key}

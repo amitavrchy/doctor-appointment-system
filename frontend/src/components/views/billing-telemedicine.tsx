@@ -58,10 +58,21 @@ export function Billing({ user, clinicId }: { user: User; clinicId?: string }) {
   async function pay(a: Appointment) {
     setBusy(true);
     try {
-      const result = await post<{ provider: string; clientSecret?: string; paymentId: string }>(
-        '/payments/intent',
-        { appointmentId: a.id },
-      );
+      if (a.payment?.provider === 'sslcommerz') {
+        setSelected(a);
+        setIntent({ provider: 'sslcommerz', paymentId: a.payment.id });
+        return;
+      }
+      const result = await post<{
+        provider: string;
+        clientSecret?: string;
+        paymentId: string;
+        checkoutUrl?: string;
+      }>('/payments/intent', { appointmentId: a.id });
+      if (result.checkoutUrl) {
+        window.location.assign(result.checkoutUrl);
+        return;
+      }
       setSelected(a);
       setIntent(result);
     } catch (e) {
@@ -206,6 +217,8 @@ export function Billing({ user, clinicId }: { user: User; clinicId?: string }) {
                 </button>
               </div>
             </>
+          ) : intent.provider === 'sslcommerz' ? (
+            <HostedCheckout appointmentId={selected.id} />
           ) : (
             <StripeCheckout
               clientSecret={intent.clientSecret!}
@@ -219,6 +232,77 @@ export function Billing({ user, clinicId }: { user: User; clinicId?: string }) {
         </Modal>
       )}
     </>
+  );
+}
+function HostedCheckout({ appointmentId }: { appointmentId: string }) {
+  const [phone, setPhone] = useState(''),
+    [address, setAddress] = useState(''),
+    [city, setCity] = useState(''),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  return (
+    <form
+      className="form-stack"
+      style={{ marginTop: 20 }}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError('');
+        try {
+          const result = await post<{ checkoutUrl: string }>('/payments/intent', {
+            appointmentId,
+            billing: { phone, address, city },
+          });
+          window.location.assign(result.checkoutUrl);
+        } catch (e) {
+          setError((e as Error).message);
+          setBusy(false);
+        }
+      }}
+    >
+      <div className="info-box">
+        SSLCommerz requires billing contact details. You will continue to its secure hosted checkout
+        to select a payment method.
+      </div>
+      <label>
+        Billing phone
+        <input
+          type="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          minLength={7}
+          maxLength={20}
+          autoComplete="tel"
+          required
+        />
+      </label>
+      <label>
+        Billing address
+        <input
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+          minLength={3}
+          maxLength={250}
+          autoComplete="street-address"
+          required
+        />
+      </label>
+      <label>
+        Billing city
+        <input
+          value={city}
+          onChange={(e) => setCity(e.target.value)}
+          minLength={2}
+          maxLength={100}
+          autoComplete="address-level2"
+          required
+        />
+      </label>
+      {error && <p className="form-error">{error}</p>}
+      <button className="button primary" disabled={busy}>
+        {busy ? 'Opening secure checkout...' : 'Continue to SSLCommerz'}
+      </button>
+    </form>
   );
 }
 function StripeCheckout({ clientSecret, onPaid }: { clientSecret: string; onPaid: () => void }) {
@@ -351,6 +435,89 @@ export function Telemedicine({ user, clinicId }: { user: User; clinicId?: string
         <RoomModal appointment={selected} user={user} onClose={() => setSelected(null)} />
       )}
     </>
+  );
+}
+function ConsultationChat({
+  appointmentId,
+  userId,
+  enabled,
+}: {
+  appointmentId: string;
+  userId: string;
+  enabled: boolean;
+}) {
+  const toast = useToast();
+  const [text, setText] = useState(''),
+    [busy, setBusy] = useState(false);
+  const query = useQuery({
+    queryKey: ['tele-messages', appointmentId],
+    queryFn: () =>
+      api<{ id: string; authorId: string; text: string; createdAt: string }[]>(
+        `/telemedicine/${appointmentId}/messages`,
+      ),
+    refetchInterval: 5000,
+  });
+  return (
+    <section className="consultation-chat panel">
+      <h3>Consultation chat</h3>
+      <p className="small">
+        Messages are saved with this visit and visible to you and your doctor.
+      </p>
+      {query.error ? (
+        <p className="form-error">{query.error.message}</p>
+      ) : (
+        <div className="chat-history" aria-live="polite">
+          {query.data?.length ? (
+            query.data.map((m) => (
+              <div className={`chat-message ${m.authorId === userId ? 'mine' : ''}`} key={m.id}>
+                <strong>{m.authorId === userId ? 'You' : 'Your care partner'}</strong>
+                <p>{m.text}</p>
+                <time>
+                  {new Date(m.createdAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </time>
+              </div>
+            ))
+          ) : (
+            <p className="small">Your conversation starts here.</p>
+          )}
+        </div>
+      )}
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          try {
+            await post(`/telemedicine/${appointmentId}/messages`, { text });
+            setText('');
+            await query.refetch();
+          } catch (error) {
+            toast((error as Error).message, true);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label>
+          Message
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={2000}
+            disabled={!enabled}
+            required
+            placeholder={
+              enabled ? 'Write to your care partner...' : 'Open the waiting room to chat'
+            }
+          />
+        </label>
+        <button className="button secondary" disabled={busy || !enabled || !text.trim()}>
+          {busy ? 'Sending...' : 'Send message'}
+        </button>
+      </form>
+    </section>
   );
 }
 function RoomModal({
@@ -543,6 +710,11 @@ function RoomModal({
           </button>
         )}
       </div>
+      <ConsultationChat
+        appointmentId={appointment.id}
+        userId={user.id}
+        enabled={['WAITING', 'LIVE'].includes(query.data?.status || '')}
+      />
     </Modal>
   );
 }

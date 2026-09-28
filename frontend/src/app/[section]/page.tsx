@@ -12,6 +12,12 @@ const sections = [
   'notifications',
   'settings',
   'analytics',
+  'calendar',
+  'queue',
+  'clinical',
+  'care-plans',
+  'finance',
+  'jobs',
 ];
 export default async function Page({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;

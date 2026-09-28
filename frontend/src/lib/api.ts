@@ -16,7 +16,11 @@ export async function api<T>(path: string, options: RequestInit = {}, retry = tr
       ...options.headers,
     },
   });
-  if (response.status === 401 && retry && !path.startsWith('/auth/')) {
+  if (
+    response.status === 401 &&
+    retry &&
+    !/^\/auth\/(login|register|refresh|logout|otp|password\/(request-reset|reset))/.test(path)
+  ) {
     refreshing ||= fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
       .then((r) => r.ok)
       .finally(() => {

@@ -22,6 +22,7 @@ import type { Clinic, User, Doctor, Notification, Summary } from '@/lib/types';
 import { Badge, Empty, ErrorState, Loading, Modal, PageHeading } from '../ui';
 import { useToast } from '../providers';
 import { AdminPanel } from '../admin-panel';
+import { SecuritySettings } from '../security-settings';
 export function SettingsView({ user }: { user: User }) {
   const toast = useToast(),
     client = useQueryClient();
@@ -177,10 +178,7 @@ export function SettingsView({ user }: { user: User }) {
         <div className="stack">
           <section className="panel setting-section">
             <h2>Signed-in devices</h2>
-            <p className="small">
-              Remove a device to stop it renewing its session. Existing access expires within 15
-              minutes.
-            </p>
+            <p className="small">Revoke a device to end its API access immediately.</p>
             {sessions.data?.map((s) => (
               <div className="session-item" key={s.id}>
                 <Monitor size={21} color="#7a9385" />
@@ -249,6 +247,7 @@ export function SettingsView({ user }: { user: User }) {
           </aside>
         </div>
       </div>
+      <SecuritySettings user={user} onPhoneVerified={(phone) => setPhone(phone)} />
     </>
   );
 }
@@ -650,7 +649,7 @@ export function Clinics({ user, clinics }: { user: User; clinics: Clinic[] }) {
     [slug, setSlug] = useState(''),
     [email, setEmail] = useState(''),
     [role, setRole] = useState('RECEPTIONIST'),
-    [userId, setUserId] = useState(''),
+    [doctorEmail, setDoctorEmail] = useState(''),
     [specialty, setSpecialty] = useState(''),
     [license, setLicense] = useState(''),
     [fee, setFee] = useState(1200),
@@ -680,7 +679,7 @@ export function Clinics({ user, clinics }: { user: User; clinics: Clinic[] }) {
       if (modal === 'member') await post(`/clinics/${selected!.id}/members`, { email, role });
       if (modal === 'doctor')
         await post('/doctors', {
-          userId,
+          email: doctorEmail,
           clinicId: selected!.id,
           specialties: specialty.split(',').map((v) => v.trim()),
           licenseNumber: license,
@@ -874,12 +873,17 @@ export function Clinics({ user, clinics }: { user: User; clinics: Clinic[] }) {
             {modal === 'doctor' && (
               <>
                 <p className="info-box">
-                  Use the registered doctor’s user ID from their profile. Existing profiles retain
-                  their license and specialties.
+                  Enter the email the doctor used to register. Existing profiles retain their
+                  license and specialties.
                 </p>
                 <label>
-                  User ID
-                  <input value={userId} onChange={(e) => setUserId(e.target.value)} required />
+                  Registered email
+                  <input
+                    type="email"
+                    value={doctorEmail}
+                    onChange={(e) => setDoctorEmail(e.target.value)}
+                    required
+                  />
                 </label>
                 <label>
                   Specialties (comma separated)
@@ -951,7 +955,7 @@ export function Analytics({ clinicId }: { clinicId: string }) {
         {[
           [Users, 'Appointments', String(s.total)],
           [Receipt, 'Net revenue', money(s.revenueMinor)],
-          [Clock3, 'Average late check-in', `${s.averageWaitMinutes.toFixed(0)} min`],
+          [Clock3, 'Average waiting time', `${s.averageWaitMinutes.toFixed(0)} min`],
           [ChartNoAxesCombined, 'No-show rate', `${s.noShowRate.toFixed(1)}%`],
         ].map(([Icon, label, value]) => {
           const Component = Icon as typeof Users;
@@ -1009,11 +1013,46 @@ export function Analytics({ clinicId }: { clinicId: string }) {
             ))}
           </div>
           <p className="small" style={{ marginTop: 20 }}>
-            Revenue includes captured payments minus pending or completed refunds. Late check-in
-            measures arrival after the scheduled start; it does not measure queue waiting time.
+            Revenue includes captured payments minus pending or completed refunds. Waiting time
+            measures check-in to consultation start for visits with both timestamps.
           </p>
         </section>
       </div>
+      <section className="panel" style={{ marginTop: 24 }}>
+        <div className="panel-head">
+          <h2>Doctor utilization</h2>
+          <span className="small">
+            {s.utilizationFrom} to {s.utilizationTo}
+          </span>
+        </div>
+        <p className="small" style={{ padding: '0 24px 16px' }}>
+          Booked consultation minutes divided by scheduled consultation minutes. Overlapping windows
+          count once; cancelled and unpaid visits are excluded. Schedule edits can make the rate
+          exceed 100%.
+        </p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Doctor</th>
+                <th>Scheduled hours</th>
+                <th>Booked hours</th>
+                <th>Utilization</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.utilization.map((d) => (
+                <tr key={d.doctorId}>
+                  <td>{d.name}</td>
+                  <td>{(d.scheduledMinutes / 60).toFixed(1)}</td>
+                  <td>{(d.bookedMinutes / 60).toFixed(1)}</td>
+                  <td>{d.percent.toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </>
   );
 }

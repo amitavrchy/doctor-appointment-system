@@ -16,6 +16,7 @@ export function AuthForm({ register = false }: { register?: boolean }) {
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [otpMode, setOtpMode] = useState(false),
+    [smsMode, setSmsMode] = useState(false),
     [challenge, setChallenge] = useState(''),
     [code, setCode] = useState(''),
     [demoCode, setDemoCode] = useState('');
@@ -28,9 +29,10 @@ export function AuthForm({ register = false }: { register?: boolean }) {
         await post('/auth/register', { email, password, fullName });
         await post('/auth/login', { email, password });
       } else if (otpMode && !challenge) {
-        const result = await post<{ challengeId: string; demoCode?: string }>('/auth/otp/request', {
-          email,
-        });
+        const result = await post<{ challengeId: string; demoCode?: string }>(
+          '/auth/otp/request',
+          smsMode ? { phone: email } : { email },
+        );
         setChallenge(result.challengeId);
         setDemoCode(result.demoCode || '');
         setBusy(false);
@@ -77,11 +79,12 @@ export function AuthForm({ register = false }: { register?: boolean }) {
             </label>
           )}
           <label>
-            Email address
+            {smsMode ? 'Verified mobile number' : 'Email address'}
             <input
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              type="email"
+              type={smsMode ? 'tel' : 'email'}
+              pattern={smsMode ? '\\+[1-9][0-9]{6,14}' : undefined}
               required
               autoComplete="email"
               placeholder="you@example.com"
@@ -155,6 +158,8 @@ export function AuthForm({ register = false }: { register?: boolean }) {
               className="text-link"
               onClick={() => {
                 setOtpMode(!otpMode);
+                setSmsMode(false);
+                if (smsMode) setEmail('');
                 setChallenge('');
                 setError('');
               }}
@@ -163,6 +168,25 @@ export function AuthForm({ register = false }: { register?: boolean }) {
             </button>
           )}
         </div>
+        {!register && (
+          <div className="auth-links">
+            <button
+              className="text-link"
+              onClick={() => {
+                setOtpMode(true);
+                setSmsMode(true);
+                setEmail('');
+                setChallenge('');
+                setError('');
+              }}
+            >
+              Use a verified phone code
+            </button>
+            <Link className="text-link" href="/reset-password">
+              Forgot password?
+            </Link>
+          </div>
+        )}
         {!register && (
           <div className="demo-accounts">
             <p>Explore with a demo account</p>
@@ -180,6 +204,7 @@ export function AuthForm({ register = false }: { register?: boolean }) {
                     setEmail(`${user}@careflow.demo`);
                     setPassword('CareflowDemo2026!');
                     setOtpMode(false);
+                    setSmsMode(false);
                     setChallenge('');
                   }}
                 >

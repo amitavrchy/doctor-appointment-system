@@ -2817,3 +2817,29 @@ td small {
   font-size: 14px;
   color: #52655f;
 }
+.patient-queue-banner {
+  margin-bottom: 24px;
+  border: 1px solid #b6d9cc;
+  border-radius: 18px;
+  background: #edf7f2;
+}
+.patient-queue-item {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 22px;
+}
+.patient-queue-item > div {
+  flex: 1;
+}
+.patient-queue-item p {
+  margin: 6px 0;
+}
+@media (max-width: 600px) {
+  .patient-queue-item {
+    flex-wrap: wrap;
+  }
+  .patient-queue-item > div {
+    min-width: 180px;
+  }
+}
