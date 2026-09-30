@@ -484,10 +484,71 @@
   gap: 15px;
   margin: 0 0 20px;
 }
-.directoryHead h3 {
+.resultsSection {
+  padding-block: 32px 60px;
+}
+.directoryHead h2 {
   font-size: 22px;
+  letter-spacing: -0.5px;
+  line-height: 1.3;
+  scroll-margin-top: 110px;
   margin-bottom: 3px;
   font-weight: 600;
+}
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  margin-top: 25px;
+}
+.pagination > p {
+  font-size: 14px;
+}
+.pagination nav {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pagination button {
+  min-width: 42px;
+  min-height: 42px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid #d7e0cf;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+}
+.pagination button[aria-current='page'] {
+  color: #fff;
+  border-color: #185448;
+  background: #185448;
+}
+.pagination button:not(:disabled):hover {
+  border-color: #779667;
+}
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (max-width: 760px) {
+  .pagination {
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .pagination nav {
+    gap: 5px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .pagination button {
+    padding-inline: 10px;
+  }
 }
 .directoryHead span {
   font-size: 14px;
@@ -1636,7 +1697,7 @@
   .directoryHead {
     align-items: flex-start;
   }
-  .directoryHead h3 {
+  .directoryHead h2 {
     font-size: 21px;
   }
   .directoryHead .textLink {

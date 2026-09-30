@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
+  ArrowLeft,
   ArrowRight,
   ArrowUpRight,
   HeartPulse,
@@ -19,9 +20,6 @@ import {
   FileHeart,
   Stethoscope,
   Heart,
-  Brain,
-  Baby,
-  Sparkles,
   Plus,
   LockKeyhole,
   ClipboardCheck,
@@ -35,13 +33,7 @@ import type { Doctor, Clinic } from '@/lib/types';
 import { Avatar } from './ui';
 import s from './landing-page.module.css';
 
-const specialties = [
-  { name: 'General Medicine', label: 'Everyday health', icon: Stethoscope },
-  { name: 'Cardiology', label: 'Heart health', icon: Heart },
-  { name: 'Dermatology', label: 'Skin & confidence', icon: Sparkles },
-  { name: 'Neurology', label: 'Mind & nervous system', icon: Brain },
-  { name: 'Pediatrics', label: 'Growing up well', icon: Baby },
-];
+const specialties = ['General Medicine', 'Cardiology', 'Dermatology', 'Neurology', 'Pediatrics'];
 const journey = [
   {
     title: 'Find your person.',
@@ -134,13 +126,23 @@ export function LandingPage() {
   const [menu, setMenu] = useState(false),
     [tab, setTab] = useState(0);
   const [specialty, setSpecialty] = useState(''),
-    [clinicId, setClinicId] = useState('');
+    [clinicId, setClinicId] = useState(''),
+    [resultPage, setResultPage] = useState(1);
   const doctors = useQuery({ queryKey: ['doctors'], queryFn: () => api<Doctor[]>('/doctors') });
   const clinics = useQuery({ queryKey: ['clinics'], queryFn: () => api<Clinic[]>('/clinics') });
   const filtered = (doctors.data || []).filter(
     (d) =>
       (!specialty || d.specialties.includes(specialty)) &&
       (!clinicId || d.memberships.some((m) => m.clinicId === clinicId)),
+  );
+  const pageSize = 3;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(resultPage, pageCount);
+  const firstResult = (currentPage - 1) * pageSize;
+  const visibleDoctors = filtered.slice(firstResult, firstResult + pageSize);
+  const pageNumbers = Array.from(
+    { length: Math.min(5, pageCount) },
+    (_, i) => Math.min(Math.max(currentPage - 2, 1), Math.max(pageCount - 4, 1)) + i,
   );
   useEffect(() => {
     const elements = root.current?.querySelectorAll('[data-reveal]');
@@ -169,12 +171,25 @@ export function LandingPage() {
   function discover(nextSpecialty = specialty, nextClinic = clinicId) {
     setSpecialty(nextSpecialty);
     setClinicId(nextClinic);
+    setResultPage(1);
     setMenu(false);
-    document.getElementById('specialists')?.scrollIntoView({
-      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? 'instant'
-        : 'smooth',
+    scrollToResults();
+  }
+  function scrollToResults() {
+    requestAnimationFrame(() => {
+      const heading = document.getElementById('doctor-results');
+      heading?.scrollIntoView({
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'instant'
+          : 'smooth',
+        block: 'start',
+      });
+      heading?.focus({ preventScroll: true });
     });
+  }
+  function changePage(page: number) {
+    setResultPage(page);
+    scrollToResults();
   }
   const active = tabs[tab];
   return (
@@ -336,11 +351,14 @@ export function LandingPage() {
               <select
                 aria-label="Specialty"
                 value={specialty}
-                onChange={(e) => setSpecialty(e.target.value)}
+                onChange={(e) => {
+                  setSpecialty(e.target.value);
+                  setResultPage(1);
+                }}
               >
                 <option value="">All specialties</option>
                 {specialties.map((item) => (
-                  <option key={item.name}>{item.name}</option>
+                  <option key={item}>{item}</option>
                 ))}
               </select>
             </label>
@@ -349,7 +367,10 @@ export function LandingPage() {
               <select
                 aria-label="Clinic location"
                 value={clinicId}
-                onChange={(e) => setClinicId(e.target.value)}
+                onChange={(e) => {
+                  setClinicId(e.target.value);
+                  setResultPage(1);
+                }}
               >
                 <option value="">All locations</option>
                 {clinics.data?.map((c) => (
@@ -364,73 +385,16 @@ export function LandingPage() {
             </button>
           </form>
         </div>
-        <section className={`${s.principles} ${s.container}`} aria-label="Careflow at a glance">
-          <div>
-            <CalendarCheck2 />
-            <span>
-              Appointments that
-              <br />
-              <strong>fit your everyday</strong>
-            </span>
-          </div>
-          <div>
-            <Video />
-            <span>
-              In person or online.
-              <br />
-              <strong>Always a connection.</strong>
-            </span>
-          </div>
-          <div>
-            <FileHeart />
-            <span>
-              Your care history.
-              <br />
-              <strong>All in one place.</strong>
-            </span>
-          </div>
-          <div>
-            <ShieldCheck />
-            <span>
-              Personal information.
-              <br />
-              <strong>Your choice to share.</strong>
-            </span>
-          </div>
-        </section>
-        <section id="specialists" className={`${s.section} ${s.container}`}>
-          <div className={s.sectionHead} data-reveal>
-            <div>
-              <p className={s.eyebrow}>THE RIGHT PEOPLE, FOR YOUR KIND OF CARE</p>
-              <h2>
-                Who’s on your
-                <br />
-                <em>side of feeling better?</em>
-              </h2>
-            </div>
-            <p>
-              From an everyday check-in to a specialist conversation, find a place to start with
-              your health.
-            </p>
-          </div>
-          <div className={s.specialties} aria-label="Choose a specialty">
-            {specialties.map(({ name, label, icon: Icon }) => (
-              <button
-                key={name}
-                className={`${s.specialty} ${specialty === name ? s.selected : ''}`}
-                aria-pressed={specialty === name}
-                onClick={() => setSpecialty(specialty === name ? '' : name)}
-              >
-                <Icon size={27} strokeWidth={1.5} />
-                <strong>{name}</strong>
-                <span>{label}</span>
-                <ArrowUpRight className={s.specialtyArrow} size={17} />
-              </button>
-            ))}
-          </div>
+        <section
+          id="specialists"
+          className={`${s.resultsSection} ${s.container}`}
+          aria-labelledby="doctor-results"
+        >
           <div className={s.directoryHead}>
             <div>
-              <h3>{specialty || 'Meet your care team'}</h3>
+              <h2 id="doctor-results" tabIndex={-1}>
+                {specialty || 'Meet your care team'}
+              </h2>
               <span aria-live="polite">
                 {doctors.isPending
                   ? 'Finding your care team…'
@@ -443,6 +407,7 @@ export function LandingPage() {
                 onClick={() => {
                   setSpecialty('');
                   setClinicId('');
+                  setResultPage(1);
                 }}
               >
                 Clear filters <X size={15} />
@@ -464,7 +429,7 @@ export function LandingPage() {
             </div>
           ) : filtered.length ? (
             <div className={s.doctorGrid}>
-              {filtered.map((d) => {
+              {visibleDoctors.map((d) => {
                 const memberships = d.memberships.filter(
                     (m) => !clinicId || m.clinicId === clinicId,
                   ),
@@ -506,26 +471,6 @@ export function LandingPage() {
                   </article>
                 );
               })}
-              {!specialty && filtered.length % 3 === 2 && (
-                <article className={`${s.doctorCard} ${s.findStart}`}>
-                  <span className={s.startIcon}>
-                    <Stethoscope size={32} strokeWidth={1.4} />
-                  </span>
-                  <span className={s.overline}>A GOOD PLACE TO BEGIN</span>
-                  <h3>
-                    Not sure where
-                    <br />
-                    to start?
-                  </h3>
-                  <p>
-                    A general medicine consultation can be your first conversation about your health
-                    and the next steps that fit you.
-                  </p>
-                  <button className={s.textLink} onClick={() => setSpecialty('General Medicine')}>
-                    Explore general medicine <ArrowUpRight size={18} />
-                  </button>
-                </article>
-              )}
             </div>
           ) : (
             <div className={s.directoryState}>
@@ -537,16 +482,89 @@ export function LandingPage() {
                 onClick={() => {
                   setSpecialty('');
                   setClinicId('');
+                  setResultPage(1);
                 }}
               >
                 See all doctors <ArrowRight size={17} />
               </button>
             </div>
           )}
+          {!doctors.isPending && !doctors.error && filtered.length > 0 && (
+            <div className={s.pagination}>
+              <p aria-live="polite">
+                Showing {firstResult + 1}-{Math.min(firstResult + pageSize, filtered.length)} of{' '}
+                {filtered.length} doctor{filtered.length === 1 ? '' : 's'}
+              </p>
+              {pageCount > 1 && (
+                <nav aria-label="Doctor result pages">
+                  <button
+                    disabled={currentPage === 1}
+                    onClick={() => changePage(currentPage - 1)}
+                    aria-label="Previous doctor results page"
+                  >
+                    <ArrowLeft size={16} />
+                    <span>Previous</span>
+                  </button>
+                  {pageNumbers.map((page) => (
+                    <button
+                      key={page}
+                      aria-label={`Doctor results page ${page}`}
+                      aria-current={page === currentPage ? 'page' : undefined}
+                      onClick={() => changePage(page)}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                  <button
+                    disabled={currentPage === pageCount}
+                    onClick={() => changePage(currentPage + 1)}
+                    aria-label="Next doctor results page"
+                  >
+                    <span>Next</span>
+                    <ArrowRight size={16} />
+                  </button>
+                </nav>
+              )}
+            </div>
+          )}
           <p className={s.directoryFoot}>
             <ShieldCheck size={16} />
             Explore doctor profiles and fees before you sign in. An account is needed to book.
           </p>
+        </section>
+        <section className={`${s.principles} ${s.container}`} aria-label="Careflow at a glance">
+          <div>
+            <CalendarCheck2 />
+            <span>
+              Appointments that
+              <br />
+              <strong>fit your everyday</strong>
+            </span>
+          </div>
+          <div>
+            <Video />
+            <span>
+              In person or online.
+              <br />
+              <strong>Always a connection.</strong>
+            </span>
+          </div>
+          <div>
+            <FileHeart />
+            <span>
+              Your care history.
+              <br />
+              <strong>All in one place.</strong>
+            </span>
+          </div>
+          <div>
+            <ShieldCheck />
+            <span>
+              Personal information.
+              <br />
+              <strong>Your choice to share.</strong>
+            </span>
+          </div>
         </section>
         <section id="experience" className={s.experience}>
           <div className={s.container}>

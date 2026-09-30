@@ -1,5 +1,59 @@
 import { test, expect } from '@playwright/test';
 
+test('login and registration offer a visible route back home', async ({ page }) => {
+  for (const route of ['/login', '/register']) {
+    await page.goto(route);
+    await page.getByRole('link', { name: 'Back to home', exact: true }).click();
+    await expect(page).toHaveURL('/');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Care that sees');
+  }
+});
+
+test('doctor results sit immediately below search and paginate with filter resets', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  const cards = page.getByRole('link', { name: /View appointments with/ });
+  await expect(cards).toHaveCount(3);
+  const firstPage = await cards.evaluateAll((links) =>
+    links.map((link) => link.getAttribute('aria-label')),
+  );
+  await page.getByRole('button', { name: 'Explore doctors', exact: true }).click();
+  await expect
+    .poll(async () => Math.round((await page.locator('#doctor-results').boundingBox())!.y))
+    .toBe(110);
+  const search = await page
+    .getByRole('button', { name: 'Explore doctors', exact: true })
+    .locator('..')
+    .boundingBox();
+  const heading = await page.locator('#doctor-results').boundingBox();
+  expect(heading!.y - (search!.y + search!.height)).toBeGreaterThanOrEqual(0);
+  expect(heading!.y - (search!.y + search!.height)).toBeLessThan(65);
+  await expect(page.getByRole('button', { name: 'Previous doctor results page' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Next doctor results page' }).click();
+  await expect(cards).toHaveCount(2);
+  await expect(
+    page.getByRole('button', { name: 'Doctor results page 2', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('button', { name: 'Next doctor results page' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Previous doctor results page' }).click();
+  expect(
+    await cards.evaluateAll((links) => links.map((link) => link.getAttribute('aria-label'))),
+  ).toEqual(firstPage);
+  await page.getByRole('button', { name: 'Next doctor results page' }).click();
+  await page.getByLabel('Clinic location', { exact: true }).selectOption('clinic-gulshan');
+  await expect(
+    page.getByRole('button', { name: 'Doctor results page 1', exact: true }),
+  ).toHaveAttribute('aria-current', 'page');
+  await expect(cards).toHaveCount(3);
+  await page.getByRole('button', { name: 'Next doctor results page' }).click();
+  await page.getByLabel('Specialty', { exact: true }).selectOption('Cardiology');
+  await expect(cards).toHaveCount(1);
+  await expect(page.getByRole('heading', { name: 'Dr. Sara Ahmed', exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Doctor result pages' })).toHaveCount(0);
+});
+
 test('public doctor discovery filters by specialty and clinic without signing in', async ({
   page,
 }) => {
