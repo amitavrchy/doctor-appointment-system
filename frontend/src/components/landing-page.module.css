@@ -198,6 +198,8 @@
   transform: translateX(4px);
 }
 .heroNote {
+  width: fit-content;
+  max-width: 100%;
   display: flex;
   gap: 13px;
   align-items: center;
@@ -428,7 +430,10 @@
   margin-bottom: 35px;
 }
 .sectionHead > .textLink {
-  justify-self: start;
+  display: flex;
+  width: fit-content;
+  justify-self: end;
+  margin-inline-start: auto;
 }
 .sectionHead .eyebrow {
   margin-bottom: 17px;
@@ -1035,38 +1040,83 @@
   line-height: 1.85;
 }
 .privacyVisual {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 15px;
+  width: 100%;
+  max-width: 440px;
+  justify-self: start;
 }
-.lockCircle {
-  width: 150px;
-  height: 150px;
+.privacyCard {
+  background: #fbfcf7;
+  border: 1px solid #d7e1ca;
+  border-radius: 14px;
+  padding: 25px;
+  box-shadow: 0 12px 30px #38532b08;
+}
+.privacyCardHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 22px;
+}
+.privacyShield {
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
-  color: #617d4e;
-  background: #e2e8d4;
-  border-radius: 50%;
-  outline: 1px solid #d7e0c8;
-  outline-offset: 12px;
-  margin-bottom: 20px;
+  flex-shrink: 0;
+  background: #e9efdd;
+  color: #54764b;
+  border-radius: 12px;
 }
-.privacyChip {
+.privacyCardHead strong {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+}
+.privacyCardHead p {
+  font-size: 14px;
+  margin-top: 3px;
+}
+.privacyAccessRow {
   display: flex;
   align-items: center;
-  gap: 9px;
-  font-size: 14px;
-  background: #fbfcf4;
-  border: 1px solid #d8e0cd;
-  padding: 9px 15px;
-  border-radius: 5px;
-  color: #5f7950;
-  box-shadow: 0 3px 8px #45602d05;
+  gap: 12px;
+  padding: 18px 0;
+  border-top: 1px solid #e2e8da;
 }
-.privacyChip:last-child {
-  margin-left: 38px;
+.privacyAccessRow > svg {
+  color: #7c916c;
+}
+.privacyAccessRow > div {
+  flex: 1;
+  min-width: 0;
+}
+.privacyAccessRow strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 550;
+}
+.privacyAccessRow > div > span {
+  display: block;
+  font-size: 14px;
+  color: #7c8973;
+  margin-top: 3px;
+}
+.accessTag {
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: #eaf0e0;
+  color: #5b754d;
+  white-space: nowrap;
+}
+.privacyCardFoot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid #e2e8da;
+  padding-top: 18px;
+  color: #748867;
+  font-size: 14px;
 }
 .privacyChecks {
   display: flex;
@@ -1357,6 +1407,14 @@
   .ctaHeart {
     right: -50px;
     opacity: 0.6;
+  }
+}
+@media (min-width: 951px) and (max-width: 1150px) {
+  .privacyAccessRow {
+    flex-wrap: wrap;
+  }
+  .accessTag {
+    margin-left: 33px;
   }
 }
 @media (max-width: 950px) {
@@ -1802,11 +1860,16 @@
     gap: 26px;
   }
   .privacyVisual {
-    padding: 14px 0;
+    max-width: 100%;
   }
-  .lockCircle {
-    width: 120px;
-    height: 120px;
+  .privacyCard {
+    padding: 22px;
+  }
+  .privacyAccessRow {
+    flex-wrap: wrap;
+  }
+  .accessTag {
+    margin-left: 33px;
   }
   .privacyChecks {
     gap: 14px;

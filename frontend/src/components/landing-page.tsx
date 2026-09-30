@@ -21,7 +21,6 @@ import {
   Stethoscope,
   Heart,
   Plus,
-  LockKeyhole,
   ClipboardCheck,
   Building2,
   CircleCheck,
@@ -760,17 +759,37 @@ export function LandingPage() {
         </section>
         <section className={`${s.privacy} ${s.container}`} data-reveal>
           <div className={s.privacyVisual}>
-            <div className={s.lockCircle}>
-              <LockKeyhole size={46} strokeWidth={1.2} />
+            <div className={s.privacyCard}>
+              <div className={s.privacyCardHead}>
+                <span className={s.privacyShield}>
+                  <ShieldCheck size={25} strokeWidth={1.5} />
+                </span>
+                <div>
+                  <strong>Your sharing choices</strong>
+                  <p>Care access, on your terms.</p>
+                </div>
+              </div>
+              <div className={s.privacyAccessRow}>
+                <Stethoscope size={21} strokeWidth={1.5} />
+                <div>
+                  <strong>Your treating doctor</strong>
+                  <span>Access within your clinic</span>
+                </div>
+                <span className={s.accessTag}>Scoped</span>
+              </div>
+              <div className={s.privacyAccessRow}>
+                <Building2 size={21} strokeWidth={1.5} />
+                <div>
+                  <strong>Across clinics</strong>
+                  <span>Only with your consent</span>
+                </div>
+                <span className={s.accessTag}>Your choice</span>
+              </div>
+              <div className={s.privacyCardFoot}>
+                <Check size={16} />
+                Manage sharing anytime in Settings
+              </div>
             </div>
-            <span className={s.privacyChip}>
-              <Check size={16} />
-              Your records, protected
-            </span>
-            <span className={s.privacyChip}>
-              <Check size={16} />
-              Your sharing, your choice
-            </span>
           </div>
           <div>
             <p className={s.eyebrow}>PERSONAL SHOULD STAY PERSONAL</p>
