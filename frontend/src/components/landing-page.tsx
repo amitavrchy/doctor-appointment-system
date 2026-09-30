@@ -297,7 +297,9 @@ export function LandingPage() {
               <span>
                 CARE THAT
                 <br />
-                COMES TOGETHER
+                COMES
+                <br />
+                TOGETHER
               </span>
             </div>
             <div className={s.appointmentPreview}>
@@ -331,7 +333,11 @@ export function LandingPage() {
             </div>
             <label>
               <span>Specialty</span>
-              <select value={specialty} onChange={(e) => setSpecialty(e.target.value)}>
+              <select
+                aria-label="Specialty"
+                value={specialty}
+                onChange={(e) => setSpecialty(e.target.value)}
+              >
                 <option value="">All specialties</option>
                 {specialties.map((item) => (
                   <option key={item.name}>{item.name}</option>
@@ -340,7 +346,11 @@ export function LandingPage() {
             </label>
             <label>
               <span>Clinic location</span>
-              <select value={clinicId} onChange={(e) => setClinicId(e.target.value)}>
+              <select
+                aria-label="Clinic location"
+                value={clinicId}
+                onChange={(e) => setClinicId(e.target.value)}
+              >
                 <option value="">All locations</option>
                 {clinics.data?.map((c) => (
                   <option key={c.id} value={c.id}>

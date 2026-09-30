@@ -267,8 +267,9 @@
   z-index: 1;
   right: -25px;
   top: -19px;
-  width: 113px;
-  height: 113px;
+  width: 144px;
+  height: 144px;
+  padding: 18px;
   border-radius: 50%;
   background: #d5e4b3;
   border: 6px solid var(--home-bg);
@@ -276,13 +277,13 @@
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 6px;
+  gap: 9px;
   transform: rotate(12deg);
 }
 .orbitBadge span {
   font-size: 14px;
   text-align: center;
-  line-height: 1.2;
+  line-height: 1.35;
   letter-spacing: -0.01em;
 }
 .appointmentPreview {
@@ -1518,8 +1519,9 @@
   .orbitBadge {
     right: -13px;
     top: -25px;
-    width: 105px;
-    height: 105px;
+    width: 136px;
+    height: 136px;
+    padding: 14px;
   }
   .orbitBadge + .appointmentPreview {
     left: -7px;
