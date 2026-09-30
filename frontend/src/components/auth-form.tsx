@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { HeartPulse, ArrowRight, LoaderCircle } from 'lucide-react';
+import { HeartPulse, ArrowLeft, ArrowRight, LoaderCircle } from 'lucide-react';
 import { post } from '@/lib/api';
 export function AuthForm({ register = false }: { register?: boolean }) {
   const router = useRouter(),
@@ -64,6 +64,10 @@ export function AuthForm({ register = false }: { register?: boolean }) {
   return (
     <main id="main" className="auth-page">
       <div className="auth-card">
+        <Link href="/" className="auth-back-home">
+          <ArrowLeft size={17} />
+          Back to home
+        </Link>
         <Link href="/" className="brand">
           <span className="brand-mark">
             <HeartPulse />

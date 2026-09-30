@@ -1415,6 +1415,21 @@ td small {
 .auth-card .brand {
   margin-bottom: 28px;
 }
+.auth-back-home {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--teal);
+  padding-block: 5px;
+}
+.auth-back-home:hover {
+  color: var(--teal-dark);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
 .auth-card h1 {
   font-size: 28px;
   margin-bottom: 10px;
