@@ -3,6 +3,7 @@
   --home-ink: #153e36;
   --home-muted: #6b7970;
   --home-line: #dce2d8;
+  --split-gap: clamp(28px, 4vw, 64px);
   background: var(--home-bg);
   color: var(--home-ink);
   overflow: clip;
@@ -26,6 +27,16 @@
 .container {
   width: 90%;
   margin-inline: auto;
+}
+.hero,
+.experienceGrid,
+.clinicSection,
+.privacy,
+.faqSection,
+.sectionHead {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--split-gap);
 }
 .announcement {
   display: flex;
@@ -135,9 +146,6 @@
 }
 .hero {
   padding: 70px 0 65px;
-  display: grid;
-  grid-template-columns: 1.05fr 1fr;
-  gap: 65px;
   align-items: center;
 }
 .heroCopy {
@@ -416,11 +424,11 @@
   padding-block: 90px;
 }
 .sectionHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 50px;
+  align-items: end;
   margin-bottom: 35px;
+}
+.sectionHead > .textLink {
+  justify-self: start;
 }
 .sectionHead .eyebrow {
   margin-bottom: 17px;
@@ -724,11 +732,6 @@
   color: #b1c4b9;
   margin-top: 20px;
 }
-.experienceGrid {
-  display: grid;
-  grid-template-columns: 1.15fr 1fr;
-  gap: 24px;
-}
 .storyPanel {
   background: #214b40;
   border: 1px solid #49705b;
@@ -942,9 +945,6 @@
   max-width: 330px;
 }
 .clinicSection {
-  display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
-  gap: 75px;
   padding-block: 60px 80px;
   border-top: 1px solid var(--home-line);
 }
@@ -1021,10 +1021,7 @@
   background: #e9efdc;
 }
 .privacy {
-  display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
   align-items: center;
-  gap: 75px;
   padding: 45px 65px;
   background: #edf0e4;
   border-radius: 16px;
@@ -1085,9 +1082,6 @@
   color: #668052;
 }
 .faqSection {
-  display: grid;
-  grid-template-columns: 0.9fr 1.1fr;
-  gap: 90px;
   padding-block: 100px;
 }
 .faqSection h2 {
@@ -1298,7 +1292,6 @@
     gap: 16px;
   }
   .hero {
-    gap: 38px;
     padding-top: 55px;
   }
   .hero h1 {
@@ -1354,11 +1347,6 @@
   }
   .storyPanel {
     padding: 24px;
-  }
-  .clinicSection,
-  .privacy,
-  .faqSection {
-    gap: 45px;
   }
   .privacy {
     padding: 40px;
@@ -1442,8 +1430,13 @@
   .doctorGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .experienceGrid {
-    grid-template-columns: 1fr;
+  .hero,
+  .experienceGrid,
+  .clinicSection,
+  .privacy,
+  .faqSection,
+  .sectionHead {
+    grid-template-columns: minmax(0, 1fr);
   }
   .storyAside {
     display: grid;
