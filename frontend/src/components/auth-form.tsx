@@ -8,8 +8,22 @@ import { post } from '@/lib/api';
 export function AuthForm({ register = false }: { register?: boolean }) {
   const router = useRouter(),
     client = useQueryClient();
-  const [ready, setReady] = useState(false);
-  useEffect(() => setReady(true), []);
+  const [ready, setReady] = useState(false),
+    [nextPath, setNextPath] = useState('/dashboard');
+  useEffect(() => {
+    const next = new URLSearchParams(window.location.search).get('next');
+    if (next?.startsWith('/')) {
+      const target = new URL(next, window.location.origin);
+      if (
+        target.origin === window.location.origin &&
+        /^\/(doctors|appointments|dashboard|calendar|records|care-plans|clinical|billing|telemedicine|settings)$/.test(
+          target.pathname,
+        )
+      )
+        setNextPath(target.pathname + target.search);
+    }
+    setReady(true);
+  }, []);
   const [email, setEmail] = useState(''),
     [password, setPassword] = useState(''),
     [fullName, setFullName] = useState(''),
@@ -40,7 +54,7 @@ export function AuthForm({ register = false }: { register?: boolean }) {
       } else if (otpMode) await post('/auth/otp/verify', { challengeId: challenge, code });
       else await post('/auth/login', { email, password });
       client.clear();
-      router.push('/dashboard');
+      router.push(nextPath);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -150,7 +164,10 @@ export function AuthForm({ register = false }: { register?: boolean }) {
           </button>
         </form>
         <div className="auth-links">
-          <Link className="text-link" href={register ? '/login' : '/register'}>
+          <Link
+            className="text-link"
+            href={`${register ? '/login' : '/register'}${nextPath !== '/dashboard' ? `?next=${encodeURIComponent(nextPath)}` : ''}`}
+          >
             {register ? 'Already have an account?' : 'New here? Create an account'}
           </Link>
           {!register && (

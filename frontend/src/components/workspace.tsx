@@ -76,7 +76,10 @@ export function Workspace({ section }: { section: string }) {
   const user = useQuery({ queryKey: ['me'], queryFn: () => api<User>('/auth/me'), retry: false });
   const clinics = useQuery({ queryKey: ['clinics'], queryFn: () => api<Clinic[]>('/clinics') });
   useEffect(() => {
-    if (user.error && 'status' in user.error && user.error.status === 401) router.replace('/login');
+    if (user.error && 'status' in user.error && user.error.status === 401)
+      router.replace(
+        `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`,
+      );
   }, [user.error, router]);
   useEffect(() => {
     if (user.data) {
