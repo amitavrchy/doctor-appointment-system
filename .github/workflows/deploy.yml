@@ -108,9 +108,19 @@ jobs:
           $DOCKER network inspect apps-net >/dev/null 2>&1 || $DOCKER network create apps-net
           echo "$GHCR_TOKEN" | $DOCKER login ghcr.io -u "$GHCR_USER" --password-stdin
           export IMAGE_TAG
-          $DOCKER compose pull
+          for attempt in 1 2 3; do
+            if $DOCKER compose pull; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::docker compose pull failed after 3 attempts"
+              exit 1
+            fi
+            echo "docker compose pull failed (attempt $attempt); retrying in 15s..."
+            sleep 15
+          done
           # Apply pending migrations with the new image before switching traffic.
-          $DOCKER compose run --rm --no-deps -T backend npx prisma migrate deploy
+          $DOCKER compose run --rm --no-deps -T --interactive=false backend npx prisma migrate deploy </dev/null
           $DOCKER compose up -d --remove-orphans
           $DOCKER logout ghcr.io >/dev/null 2>&1 || true
           $DOCKER image prune -f
