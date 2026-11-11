@@ -26,6 +26,8 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
     env_file: .env
+    # The image no longer migrates on start (production runs migrations from the deploy workflow).
+    command: ['sh', '-c', 'npx prisma migrate deploy && node dist/main.js']
     environment:
       DATABASE_URL: postgresql://careflow:${POSTGRES_PASSWORD:-careflow_dev}@postgres:5432/careflow?schema=public
       REDIS_URL: redis://redis:6379
