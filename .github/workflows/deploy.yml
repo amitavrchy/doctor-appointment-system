@@ -1,0 +1,122 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  APP: careflow
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/amitavrchy/careflow-backend
+  FRONTEND_IMAGE: ghcr.io/amitavrchy/careflow-frontend
+  # Browser calls same-origin /api/*; the Next.js server proxies it (stripping /api) to this
+  # URL over the shared Docker network (container name from deploy/docker-compose.prod.yml).
+  # Public API (via host Nginx): https://api.careflow.13.203.3.1.sslip.io (no /api prefix)
+  API_INTERNAL_URL: http://careflow-backend:4000
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - component: backend
+            dockerfile: backend/Dockerfile
+          - component: frontend
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          provenance: false
+          build-args: |
+            API_INTERNAL_URL=${{ env.API_INTERNAL_URL }}
+            NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          tags: |
+            ghcr.io/amitavrchy/careflow-${{ matrix.component }}:latest
+            ghcr.io/amitavrchy/careflow-${{ matrix.component }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha,scope=careflow-${{ matrix.component }}
+          cache-to: type=gha,scope=careflow-${{ matrix.component }},mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 15 -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Upload compose file
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key -o BatchMode=yes"
+          $SSH "$EC2_USER@$EC2_HOST" "sudo mkdir -p /opt/apps/$APP && sudo chown \$(id -u):\$(id -g) /opt/apps/$APP"
+          scp -i ~/.ssh/deploy_key -o BatchMode=yes deploy/docker-compose.prod.yml "$EC2_USER@$EC2_HOST:/opt/apps/$APP/docker-compose.yml"
+
+      - name: Deploy
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o BatchMode=yes "$EC2_USER@$EC2_HOST" \
+            "APP='$APP' IMAGE_TAG='$IMAGE_TAG' GHCR_USER='$GHCR_USER' GHCR_TOKEN='$GHCR_TOKEN' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "/opt/apps/$APP"
+          DOCKER=docker
+          docker info >/dev/null 2>&1 || DOCKER="sudo docker"
+          if [ ! -f .env ]; then
+            echo "::error::/opt/apps/$APP/.env is missing. Create it from deploy/.env.example first."
+            exit 1
+          fi
+          $DOCKER network inspect apps-net >/dev/null 2>&1 || $DOCKER network create apps-net
+          echo "$GHCR_TOKEN" | $DOCKER login ghcr.io -u "$GHCR_USER" --password-stdin
+          export IMAGE_TAG
+          $DOCKER compose pull
+          # Apply pending migrations with the new image before switching traffic.
+          $DOCKER compose run --rm --no-deps -T backend npx prisma migrate deploy
+          $DOCKER compose up -d --remove-orphans
+          $DOCKER logout ghcr.io >/dev/null 2>&1 || true
+          $DOCKER image prune -f
+          $DOCKER compose ps
+          REMOTE
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
