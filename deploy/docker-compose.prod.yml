@@ -1,0 +1,57 @@
+# Production stack for Careflow on the shared EC2 host.
+# Lives at /opt/apps/careflow/docker-compose.yml (copied by .github/workflows/deploy.yml)
+# next to /opt/apps/careflow/.env (see deploy/.env.example). Host Nginx terminates TLS:
+#   https://careflow.13.203.3.1.sslip.io      -> 127.0.0.1:3002 (frontend)
+#   https://api.careflow.13.203.3.1.sslip.io  -> 127.0.0.1:4002 (backend; no /api prefix, e.g. /health)
+name: careflow
+
+services:
+  backend:
+    image: ghcr.io/amitavrchy/careflow-backend:${IMAGE_TAG:-latest}
+    container_name: careflow-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+    ports:
+      - "127.0.0.1:4002:4000"
+    networks: [apps-net]
+    deploy:
+      resources:
+        limits:
+          memory: 448M
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    image: ghcr.io/amitavrchy/careflow-frontend:${IMAGE_TAG:-latest}
+    container_name: careflow-frontend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "127.0.0.1:3002:3000"
+    networks: [apps-net]
+    depends_on: [backend]
+    deploy:
+      resources:
+        limits:
+          memory: 320M
+    logging: *logging
+
+networks:
+  apps-net:
+    external: true

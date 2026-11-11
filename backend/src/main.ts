@@ -24,6 +24,19 @@ async function bootstrap() {
     if (process.env[key]!.length < 32)
       throw new Error(`${key} must contain at least 32 characters`);
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  // Behind reverse proxies (host Nginx -> Next.js rewrite -> API) set TRUST_PROXY
+  // (e.g. "loopback,linklocal,uniquelocal") so req.ip is the real client for rate limits.
+  if (process.env.TRUST_PROXY) {
+    const trust = process.env.TRUST_PROXY.trim();
+    app.set(
+      'trust proxy',
+      /^\d+$/.test(trust)
+        ? Number(trust)
+        : trust === 'true'
+          ? true
+          : trust.split(',').map((v) => v.trim()),
+    );
+  }
   app.useBodyParser('json', { limit: '8mb' });
   app.enableShutdownHooks();
   app.useGlobalFilters(new SafeErrorFilter());
